@@ -1,0 +1,76 @@
+# ============================================================
+#   mianshi-show —— 公开展示仓库 .gitignore
+#   红线：任何密钥 / AI 配置绝不入库
+#   注意：注释必须独立成行，行内注释会被当成模式的一部分而失效
+# ============================================================
+
+# ---------- 机密：绝对不提交 ----------
+.env
+.env.*
+# 只保留不含真实值的模板
+!.env.example
+*.key
+*.pem
+secrets/
+**/appsettings.Local.json
+**/application-local.yml
+**/application-local.yaml
+# 可能含内网私有源（如公司 NuGet 仓库地址），不入库
+nuget.config
+NuGet.config
+
+# ---------- 内部文档：不对外展示 ----------
+# "如何生成"的内部实现方案，面向自己/实现方 AI，非展示内容
+_internal-specs/
+
+# ---------- Python (项目 B) ----------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.uv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+# 本地向量库落盘目录
+chroma_data/
+*.sqlite3
+# 本地下载的 embedding/rerank 模型权重（~90MB+）
+models/
+*.safetensors
+*.onnx
+# 评测产物按需生成；report.md / report_hard.md 保留入库（有真实数字给招聘方看）
+**/benchmarks/metrics.json
+
+# ---------- Java (项目 C) ----------
+.gradle/
+build/
+target/
+*.class
+*.jar
+!**/gradle-wrapper.jar
+.mvn/
+
+# ---------- .NET (项目 D) ----------
+bin/
+obj/
+*.user
+.vs/
+
+# ---------- Node（若 demo 用到）----------
+node_modules/
+dist/
+.next/
+
+# ---------- IDE / OS ----------
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# ---------- 运行产物 ----------
+*.log
+logs/
+# 本地私有数据；样例数据 data/*.sample.json 照常入库
+data/*.local.json

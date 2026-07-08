@@ -1,0 +1,65 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.0'
+    id 'io.spring.dependency-management' version '1.1.6'
+}
+
+group = 'com.nontracey'
+version = '0.1.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url 'https://repo.spring.io/milestone' }
+}
+
+ext {
+    springAiVersion = '1.0.0-M4'
+}
+
+dependencies {
+    // Spring Boot
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'  // SSE / Flux
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // Spring AI(OpenAI 兼容,可切通义/DeepSeek)
+    implementation 'org.springframework.ai:spring-ai-openai-spring-boot-starter'
+
+    // Swagger UI
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
+
+    // JSON
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+
+    // HTTP client(拉取知识库 manifest)
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+
+    // Lombok(可选,减少样板)
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // Test
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'io.projectreactor:reactor-test'
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.ai:spring-ai-bom:${springAiVersion}"
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+// 启用 UTF-8(中文内容)
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

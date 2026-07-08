@@ -1,0 +1,126 @@
+{
+  "contentVersion": "2026.07.01",
+  "n": 15,
+  "evals": [
+    {
+      "question": "如何实现ESM代码分割？",
+      "relevant_ids": [
+        "frontend.engineering.tree-shaking-code-splitting"
+      ],
+      "ground_truth": "Tree Shaking 通过 ESM 静态结构在编译期标记并删除未使用导出，代码分割通过动态 import()、SplitChunks 等策略将 bundle 拆成按需加载的 chunk；两者配合控制首屏体积，但需处理 sideEffects 声明、chunk 命名缓存、加载瀑布等工程细节。 能解释 Tree Shaking 依赖 ESM 静态结构，CJS 的 require 是运行时动态行为无法精确摇树 能说明 sideEffects 字段的作用和不设的后果 能区分动态 import()、SplitChunksPlugin、入口分割三种代码分割方式的适用场景 能解释 contenthash 命名的缓存收益",
+      "domain": "frontend"
+    },
+    {
+      "question": "依赖注入 IoC 核心原理及生命周期",
+      "relevant_ids": [
+        "dotnet.dotnet-core.dependency-injection"
+      ],
+      "ground_truth": "讲清依赖注入作为 IoC 实现的核心动机（解耦、可测试、可替换），.NET Core 内置容器的注册→解析→释放流程，三种生命周期（Transient/Scoped/Singleton）的区别与选择依据，构造函数注入为何优先，以及 Singleton 注入 Scoped 的生命周期倒挂（captive dependency）问题如何产生、如何排查、如何修复。 能解释 DI 是 IoC 的实现方式，核心动机是解耦、可测试、可替换 能区分 Transient/Scoped/Singleton 三种生命周期的创建频率、共享范围和线程安全要求 能说明构造函数注入为何优先（显式依赖、不可变、快速失败） 能讲清 Singleton 注入 Scoped 的 captive dependency 问题及其修复方式",
+      "domain": "dotnet"
+    },
+    {
+      "question": "灰度发布流量控制怎么做",
+      "relevant_ids": [
+        "devops.delivery.release-strategy"
+      ],
+      "ground_truth": "讲清蓝绿、金丝雀、灰度和滚动四种发布策略的流量切分机制、指标门禁与自动回滚条件、数据库向前兼容（expand-contract）与特性开关兜底，以及 A/B 测试与灰度发布在决策目标上的本质差异。 能区分蓝绿（LB/Ingress 一次性切流 100%）、金丝雀（Ingress canary-weight / Istio VirtualService weight 分 5%-10%）、灰度（网关按 user_id hash/region/租户标签规则分流）、滚动（K8s maxSurge/maxUnavailable 分批替换 25%/批）四种策略的核心机制和回滚速度 能讲清从 canary-weight / VirtualService weight 配置、指标观测（错误率基线 +0.5%-1%、P99 延迟升高 2 倍持续 1-2 分钟）、到 progressDeadlineSeconds 超时或 ArgoCD sync --prune 自动回滚的完整链路 能指出 A/B 测试（业务效果评估、统计显著性 p-value < 0.05、固定测试周期 7-14 天）和灰度发布（风险验证、稳定性指标、渐进放量）的本质区别 能给出数据库 expand-contract 三阶段变更方案和特性开关（LaunchDarkly/Flagsmith）兜底措施作为发布兼容性保障",
+      "domain": "devops"
+    },
+    {
+      "question": "Java 字符串底层原理",
+      "relevant_ids": [
+        "algorithm.string.topic-string-basics"
+      ],
+      "ground_truth": "字符串是编程中最基础的数据结构，面试高频考察点覆盖三个层面：Java 中 String/StringBuilder/StringBuffer 的底层机制与选型、字符串不可变性的设计取舍、以及以 KMP 和回文串为代表的经典算法思想——理解这些才能在面试中把字符串题答得既准又深。 能解释 String 不可变性的底层实现（final char[]）和设计动机（安全/hashCode 缓存/线程安全/池化） 能区分 String/StringBuilder/StringBuffer 的可变性、线程安全和性能差异 能手写 KMP 的 next 数组构建和匹配过程，说清 next[j] 的含义和失配时指针跳转逻辑 能用中心扩展法实现最长回文子串，说清奇偶两种情况的处理 能解释 `==` 比较引用 vs `equals` 比较内容在字符串场景中的具体表现",
+      "domain": "algorithm"
+    },
+    {
+      "question": "synchronized锁机制详解",
+      "relevant_ids": [
+        "java.concurrency.topic-014-880c2a03"
+      ],
+      "ground_truth": "从锁对象语义、字节码入口（monitorenter/ACC_SYNCHRONIZED）、Mark Word 轻量级路径、ObjectMonitor 膨胀、wait/notify 机制、JIT 锁优化到 JDK 版本边界（偏向锁禁用、虚拟线程 pinning 改善）理解 synchronized 的完整原理和选型依据。 能说出 synchronized 三种用法分别锁 this、Class、指定对象 能讲清同步块用 monitorenter/monitorexit，同步方法用 ACC_SYNCHRONIZED 能说明 unlock happens-before 后续同锁 lock，因此 synchronized 同时保证互斥和可见性 能描述现代 HotSpot 的轻量级锁（Mark Word + Lock Record + CAS）、自旋、锁膨胀、ObjectMonitor（owner/EntryList/WaitSet） 能说明偏向锁是历史优化，JDK 15 起默认禁用并废弃相关选项",
+      "domain": "java"
+    },
+    {
+      "question": "Spring循环依赖如何解决",
+      "relevant_ids": [
+        "java.spring.topic-047-7bfc4e55"
+      ],
+      "ground_truth": "讲清 Boot 2.6+ 默认禁止循环引用的策略选择、Spring 单例 setter/字段注入的三级缓存机制与早期 AOP 代理一致性、构造器/prototype 失败边界、以及重构解法的工程取舍。 能说明 Boot 2.6+ 默认禁止循环引用，allow-circular-references 只适合遗留过渡 能解释单例 setter/字段注入循环依赖的三级缓存完整流转过程 能说清 singletonObjects / earlySingletonObjects / singletonFactories 各自的职责和写入/移除时机 能解释 ObjectFactory 延迟决策的价值，而不是只背三个 Map 的名字 能说明构造器注入和 prototype 循环依赖为什么无法通过三级缓存解决",
+      "domain": "java"
+    },
+    {
+      "question": "短视频脚本怎么写？",
+      "relevant_ids": [
+        "self-media.production.short-video-script"
+      ],
+      "ground_truth": "用钩子-内容-行动三段式时间线、每 5-7 秒一个信息转折、口播 220-260 字/分钟节奏密度、前 3 秒/7-15 秒/中段/结尾四个掉点定位法，写出有完播也有转化的短视频脚本，并能按口播/剧情/解说选型。 三段式时间预算 0-3s 钩子 / 4-50s 内容 / 51-60s CTA，及 6 段式吸引-认同-悬念-干货-案例-行动细分 前 3 秒、7-15 秒、中段完播、结尾互动四个观察点，及指标掉点对应改哪段脚本 节奏 = 信息密度（约 220-260 字/分钟、每 5-7s 一转折）+ 视觉密度（每 3-5s 一切镜头），不是语速 口播 / 剧情 / 解说三类脚本的适用品类、钩子方式和典型坑 字幕规范：一句 ≤14 字、上 100px 下 200px 安全区、BGM 比人声低约 -10dB",
+      "domain": "self-media"
+    },
+    {
+      "question": "找两条线段最大面积容器方法",
+      "relevant_ids": [
+        "algorithm.array.topic-leetcode-11"
+      ],
+      "ground_truth": "给定 n 条垂直线段，找出两条线段使它们与 x 轴构成的容器面积最大；核心思路是双指针从两端收缩，每轮移动短板边界，O(n) 时间、O(1) 空间得到最优解。 能写出面积公式 min(height[l], height[r]) * (r - l) 能描述双指针从两端收缩、每轮移动短板侧指针的算法 能证明移动短板不会漏掉最优解（移动长边面积必然不增） 能分析时间 O(n)、空间 O(1)",
+      "domain": "algorithm"
+    },
+    {
+      "question": "Nacos 注册发现原理及配置管理",
+      "relevant_ids": [
+        "java.microservice.topic-055-e51532ee"
+      ],
+      "ground_truth": "讲清 Nacos Naming 注册发现与 Config 动态配置两条主链路、临时/持久实例与 AP/CP 取舍、2.x gRPC 长连接推送模型、namespace/group/serviceName/cluster/metadata/dataId 治理分层、配置刷新失效的常见故障模式，以及 3.x/3.2 版本边界和生产可观测治理。 能区分 Nacos Naming 和 Config 两条主链路及其核心流程 能说清 namespace、group、service、cluster、metadata、dataId 的职责和层级关系 能解释临时实例和持久实例的健康管理差异及 AP/CP 取舍 能说明消费者如何订阅实例并结合健康状态、权重、集群做调用",
+      "domain": "java"
+    },
+    {
+      "question": "SQL优化EXPLAIN用法",
+      "relevant_ids": [
+        "database.mysql-core.sql-explain-optimization"
+      ],
+      "ground_truth": "掌握 EXPLAIN 各列的机制含义、索引命中与回表成本判断、联合索引设计与 SQL 改写思路，以及如何用执行计划闭环验证优化收益。 能解释 type 各级别（const/eq_ref/ref/range/index/ALL）的访问路径含义和适用场景 能根据 WHERE/ORDER BY/GROUP BY 设计联合索引并说明等值在前、范围在后、排序最后的列顺序原则 能区分 possible_keys（候选）和 key（实际选择）、Using index（覆盖）和 Using where（Server 层过滤）的含义差异 能用 EXPLAIN 对比 + 慢日志扫描行数 + 业务延迟指标闭环验证优化收益",
+      "domain": "database"
+    },
+    {
+      "question": "队列操作怎么用？",
+      "relevant_ids": [
+        "algorithm.queue.topic-queue-basics"
+      ],
+      "ground_truth": "队列是「一端进、另一端出」的 FIFO 线性结构，核心操作 offer/poll/peek 均 O(1)；需要两端操作选 Deque、需要按优先级出队选堆；数组实现的循环队列靠取模复用空间，判断空满是高频易错点；BFS 层序遍历、滑动窗口、TopK 是算法面试中最常考的队列应用场景。 能准确定义队列的 FIFO 语义，并说明 offer/poll/peek 的行为和边界（空队列返回 null vs 抛异常） 能区分普通队列、Deque、优先队列、循环队列的底层结构、操作复杂度和适用场景 能手写循环队列的核心逻辑：数组 + front + size + 取模，并正确判空判满 能解释 BFS 层序遍历模板中 levelSize 的作用，以及单调递减 Deque 解滑动窗口最大值的原理",
+      "domain": "algorithm"
+    },
+    {
+      "question": "CompletableFuture 链式调用区别",
+      "relevant_ids": [
+        "java.concurrency.topic-026-3990751f"
+      ],
+      "ground_truth": "讲清 CompletableFuture 相比 Future 的链式编排能力、CompletionStage 方法选择逻辑、Async 与非 Async 的执行线程差异、异常转换与观察语义、超时与底层任务取消的分离、commonPool 共享风险及生产级自定义线程池隔离，以及何时应转向 Reactor / Flow / 虚拟线程。 能说出 CompletableFuture 解决了 Future 的链式编排、组合和异常处理痛点 能说明阻塞任务必须传自定义线程池，避免 commonPool 被占满影响并行流和其他 CF 能区分 thenApply / thenCompose / thenCombine / allOf / anyOf 的依赖关系和适用场景 能区分 exceptionally / handle / whenComplete 的异常转换、吞吐与传播语义",
+      "domain": "java"
+    },
+    {
+      "question": "MCP协议如何降低集成成本？",
+      "relevant_ids": [
+        "agent.tool-agent.topic-115-35c5dcec"
+      ],
+      "ground_truth": "MCP 是模型应用连接外部工具和资源的开放协议，通过 Host/Client/Server 三角色和 tools/resources/prompts 三类能力标准化能力发现与调用，降低 N×M 集成成本；理解 stdio/Streamable HTTP 传输演进、initialize 握手协商、结构化返回格式以及 Server 侧鉴权与审计边界是回答好本题的关键。 能说明 MCP 解决 N×M 集成复杂度，核心价值是标准化能力发现与调用 能区分 Host、Client、Server 三角色的职责 能说明 tools/resources/prompts 三种能力类型及其副作用差异 能指出 MCP 不替代鉴权，Server 端仍需参数校验、权限检查和审计",
+      "domain": "agent"
+    },
+    {
+      "question": "Python正则表达式高效用法",
+      "relevant_ids": [
+        "python.python-basics.string-regex"
+      ],
+      "ground_truth": "掌握 Python 字符串不可变性的内部实现与拼接性能差异、f-string/format/编码转换的正确用法、re 模块核心函数与正则匹配引擎的贪婪/非贪婪/回溯机制，以及高频面试场景中的编码陷阱和性能优化手段。 能解释字符串不可变性及 join vs += 的 O(n) vs O(n²) 性能差异 能写出正确的 f-string 用法并说明其编译时优化优势 能区分 str 和 bytes，说明 encode/decode 的使用场景和常见 TypeError 能使用 re.compile + finditer/findall 写出常用正则匹配代码",
+      "domain": "python"
+    },
+    {
+      "question": "反射注解性能优化方法",
+      "relevant_ids": [
+        "java.jvm.topic-033-070d3ba1"
+      ],
+      "ground_truth": "从 Class 元数据身份（ClassLoader 决定）、反射 API 三层入口（字段/方法/构造器）、JPMS 模块访问边界（setAccessible 不能穿透模块约束）、注解保留阶段与消费链路（SOURCE/CLASS/RUNTIME 各自被谁读取）、性能瓶颈诊断与替代路径（MethodHandle、LambdaMetafactory、字节码生成）五个维度理解框架如何用反射与注解工作。 能说出反射是围绕 Class 元数据进行运行时操作的能力，并说明 Class 身份受 ClassLoader 影响 能区分 T.class/obj.getClass()/Class.forName 的初始化行为差异和使用场景 能解释 @Retention 三个值及其消费者，能把注解本身和处理器行为分开 能说明 setAccessible 只跳过语言层检查，JPMS 的 opens/exports 和 InaccessibleObjectException 是什么 能解释反射性能成本来源，并给出缓存、MethodHandle、LambdaMetafactory、字节码生成的优化层次",
+      "domain": "java"
+    }
+  ]
+}

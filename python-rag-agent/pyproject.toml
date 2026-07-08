@@ -1,0 +1,61 @@
+[project]
+name = "python-rag-agent"
+version = "0.1.0"
+description = "AI 面试陪练服务(Python 版):RAG 知识问答 + LLM-judge 评估 + LangGraph Agent + 工程化"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "openai>=1.40.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.4.0",
+    "httpx>=0.27.0",
+    "python-multipart>=0.0.9",
+    "sse-starlette>=2.1.0",
+    "tiktoken>=0.7.0",
+]
+
+[project.optional-dependencies]
+rag = [
+    "chromadb>=0.5.0",
+    "rank-bm25>=0.2.2",
+    "langchain>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-openai>=0.1.20",
+    "langgraph>=0.2.0",
+]
+eval = [
+    "ragas>=0.1.9",
+    "datasets>=2.20.0",
+]
+rerank = [
+    "sentence-transformers>=3.0.0",
+]
+cache = [
+    "redis>=5.0.0",
+    "fakeredis>=2.23.0",
+]
+demo = [
+    "streamlit>=1.36.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.6.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

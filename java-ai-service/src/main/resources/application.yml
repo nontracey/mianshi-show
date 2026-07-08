@@ -1,0 +1,42 @@
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: java-ai-service
+  ai:
+    openai:
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+      api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          model: ${LLM_MODEL:gpt-4o-mini}
+          temperature: 0
+      embedding:
+        options:
+          model: ${EMBEDDING_MODEL:text-embedding-3-small}
+
+# 自定义配置
+app:
+  kb:
+    content-url: ${KB_CONTENT_URL:https://raw.githubusercontent.com/nontracey/mianshi-zhilian-content/main/manifest.json}
+    content-path: ${KB_CONTENT_PATH:}
+    sample-path: ${KB_SAMPLE_PATH:../data/knowledge_base.sample.json}
+  vector-store: ${VECTOR_STORE:memory}
+  rate-limit-per-minute: ${RATE_LIMIT_PER_MINUTE:20}
+
+springdoc:
+  swagger-ui:
+    path: /docs
+  api-docs:
+    path: /openapi.json
+
+logging:
+  level:
+    com.nontracey.aiservice: INFO
+  pattern:
+    console: "%d{HH:mm:ss} [%thread] %-5level [%X{traceId:-}] %logger{36} - %msg%n"

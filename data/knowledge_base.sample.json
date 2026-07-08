@@ -1,0 +1,202 @@
+{
+  "_comment": "知识库样例(精简版,schema 与 mianshi-zhilian-content 真实 topic 一致)。仅供离线快速跑通流程/CI 使用;运行时默认走 KB_CONTENT_URL 公开 manifest 拉取全量(~429 production topic)。",
+  "contentVersion": "2026.07.01-sample",
+  "topics": [
+    {
+      "id": "java.concurrency.volatile",
+      "domain": "java",
+      "category": "concurrency",
+      "group": "jmm",
+      "title": "volatile 关键字与内存可见性",
+      "summary": "volatile 保证可见性与禁止指令重排,但不保证复合操作原子性。是 JMM 层面最轻量的同步机制。",
+      "tags": ["Java", "并发", "JMM", "volatile"],
+      "difficulty": 3,
+      "estimatedMinutes": 25,
+      "order": 10,
+      "recommendWeight": 0.9,
+      "status": "production",
+      "prerequisites": ["java.concurrency.thread-basic"],
+      "interviewFrequency": "high",
+      "interviewerFocus": "可见性 vs 原子性、happens-before、双重检查锁单例",
+      "learningCards": [
+        {
+          "type": "explain",
+          "title": "volatile 的两大语义",
+          "content": "volatile 修饰的变量具备两大语义:1) 可见性——写操作立即刷新到主内存,读操作强制从主内存读取,使得一个线程的写对其他线程立即可见;2) 禁止指令重排序——通过在读写前后插入内存屏障(JMM 层面),阻止编译器与处理器对 volatile 读写前后的指令做重排。这两点共同保证了 happens-before 语义:对一个 volatile 变量的写,happens-before 后续任意线程对它的读。"
+        },
+        {
+          "type": "explain",
+          "title": "为什么不保证原子性",
+          "content": "volatile 不能保证复合操作(如 i++)的原子性。i++ 实际是「读-改-写」三步,虽然每次读到的值是最新的,但两条线程可能同时读到最新值后各自加一再写回,结果丢失一次更新。要保证原子性应使用 synchronized、AtomicInteger 或 LongAdder。volatile 只在「一写多读」的纯赋值场景(如 boolean flag)下能起到线程安全作用。"
+        },
+        {
+          "type": "code",
+          "title": "双重检查锁单例(DCL)为什么要 volatile",
+          "content": "private static volatile Singleton instance;\npublic static Singleton getInstance() {\n    if (instance == null) {\n        synchronized (Singleton.class) {\n            if (instance == null) {\n                instance = new Singleton(); // 非原子:分配内存->初始化->赋值\n            }\n        }\n    }\n    return instance;\n}\n// 不加 volatile,指令重排可能把「赋值」排到「初始化」之前,其他线程拿到未初始化完的对象。"
+        },
+        {
+          "type": "interviewAnswer",
+          "title": "面试标准答法",
+          "content": "volatile 是 JMM 提供的轻量级同步机制,有两大语义:可见性与禁止指令重排。可见性靠写后刷新主内存、读前强制从主内存读;禁止重排靠插入内存屏障。但它不保证原子性,i++ 这类复合操作仍需 synchronized 或原子类。典型应用是双重检查锁单例——不加 volatile 会因为 new 对象的重排,导致其他线程拿到半初始化对象。"
+        },
+        {
+          "type": "checklist",
+          "title": "易错点清单",
+          "content": "1) volatile 不保证原子性,只保证可见性;2) 适用场景是一写多读的 flag/引用赋值;3) DCL 单例必须加 volatile;4) happens-before 不等于时间先后,而是 JMM 的偏序关系。"
+        }
+      ],
+      "recallPrompts": [
+        {"id": "java.concurrency.volatile.recall.1", "prompt": "请讲清 volatile 的两大语义,以及为什么它不保证原子性。", "difficulty": 3},
+        {"id": "java.concurrency.volatile.recall.2", "prompt": "双重检查锁单例为什么必须用 volatile?不加会出什么问题?", "difficulty": 4}
+      ],
+      "rubric": {
+        "mustHave": [
+          "能说清 volatile 保证可见性与禁止指令重排两大语义",
+          "能解释为什么不保证复合操作原子性(i++ 的读-改-写)",
+          "能提到 happens-before 关系或内存屏障"
+        ],
+        "goodToHave": [
+          "能给出 DCL 单例的正确写法并解释为何要 volatile",
+          "能对比 synchronized / Atomic 类的适用场景",
+          "能提到一写多读是 volatile 的典型适用场景"
+        ],
+        "commonMistakes": [
+          "误以为 volatile 保证原子性",
+          "把 happens-before 当成时间先后而非 JMM 偏序",
+          "认为 volatile 变量不需要任何同步就能线程安全"
+        ],
+        "scoreWeights": {"coverage": 25, "accuracy": 30, "interviewExpression": 20, "depth": 25}
+      },
+      "updatedAt": "2026-06-12"
+    },
+    {
+      "id": "database.mysql-index",
+      "domain": "database",
+      "category": "mysql-core",
+      "group": "index",
+      "title": "MySQL 索引原理",
+      "summary": "InnoDB 索引基于 B+ 树;聚簇索引叶子存整行,二级索引叶子存主键,二级索引查非索引列需回表。联合索引遵循最左前缀与范围截断规则。",
+      "tags": ["数据库", "MySQL", "索引"],
+      "difficulty": 3,
+      "estimatedMinutes": 30,
+      "order": 10,
+      "recommendWeight": 1.0,
+      "status": "production",
+      "prerequisites": [],
+      "interviewFrequency": "high",
+      "interviewerFocus": "B+ 树结构、聚簇 vs 二级、回表、覆盖索引、最左前缀、索引失效",
+      "learningCards": [
+        {
+          "type": "explain",
+          "title": "InnoDB B+ 树索引结构",
+          "content": "InnoDB 的索引基于 B+ 树:非叶子节点只存索引键用于导航,叶子节点存数据并按索引键有序组成双向链表。这种结构让范围查询可以沿叶子链表顺序扫描,非常高效。每个页默认 16KB,非叶子节点能存上千个键,因此一棵 3 层的 B+ 树通常能索引两千万行。"
+        },
+        {
+          "type": "explain",
+          "title": "聚簇索引 vs 二级索引",
+          "content": "聚簇索引的叶子节点存整行数据,InnoDB 按主键建聚簇索引,所以按主键查询是单次 IO。二级索引(非主键索引)的叶子节点只存索引列和主键,查非索引列需要拿着主键再回到聚簇索引查一次,称为回表。回表是随机 IO,行数多时优化器可能放弃索引改用全表扫描。"
+        },
+        {
+          "type": "explain",
+          "title": "联合索引的最左前缀与范围截断",
+          "content": "联合索引 (a,b,c) 在 B+ 树上是按 a->b->c 逐级排序的。查询条件必须从最左列开始才能用到索引:能用 a、a+b、a+b+c;只用 b 或 c 不行。范围条件(a>1)之后的列无法继续用索引精确定位,因为范围扫描的下一个列在 B+ 树里不再有序——这叫范围截断。所以联合索引的字段顺序要把等值条件放前面、范围条件放后面。"
+        },
+        {
+          "type": "interviewAnswer",
+          "title": "面试标准答法",
+          "content": "InnoDB 索引是 B+ 树:非叶子节点导航,叶子节点有序双向链表。主键索引是聚簇索引,叶子存整行;其他是二级索引,叶子存主键,查非索引列要回表(随机 IO)。联合索引按字段逐级排序,遵循最左前缀,范围条件会截断后续列的索引使用。覆盖索引(查询列都在索引里)能避免回表,EXPLAIN 里看 Using index。索引失效常见于隐式类型转换、函数运算、前导模糊匹配 like '%x'。"
+        },
+        {
+          "type": "checklist",
+          "title": "易错点清单",
+          "content": "1) 不是所有索引都比全表扫描快,回表随机 IO 在行数多时可能更慢;2) 联合索引 (a,b,c) 上 a>1 AND c=3 不能用 b 和 c 精确定位;3) 覆盖索引看 Using index 不是 Using where;4) like '%xx' 前导模糊匹配无法用索引。"
+        }
+      ],
+      "recallPrompts": [
+        {"id": "database.mysql-index.recall.1", "prompt": "请讲清 InnoDB 二级索引查询到回表的完整过程。", "difficulty": 3},
+        {"id": "database.mysql-index.recall.2", "prompt": "联合索引 (a,b,c) 上 a>1 AND b=2 AND c=3 能用到几列索引?为什么?", "difficulty": 4}
+      ],
+      "rubric": {
+        "mustHave": [
+          "能解释 B+ 树非叶子导航、叶子有序链表的结构",
+          "能区分聚簇索引存整行、二级索引存主键需回表",
+          "能说明最左前缀与范围截断的原理"
+        ],
+        "goodToHave": [
+          "能提到覆盖索引避免回表(Using index)",
+          "能列举索引失效场景(隐式转换/函数/前导模糊)",
+          "能用 key_len 验证联合索引用了几列"
+        ],
+        "commonMistakes": [
+          "认为索引越多查询越快,忽略写入维护成本",
+          "认为命中索引就一定比全表扫描快,忽略回表随机 IO",
+          "只背最左前缀口诀但不理解 B+ 树逐级排序"
+        ],
+        "scoreWeights": {"coverage": 25, "accuracy": 30, "interviewExpression": 20, "depth": 25}
+      },
+      "updatedAt": "2026-06-12"
+    },
+    {
+      "id": "python.gil",
+      "domain": "python",
+      "category": "concurrency",
+      "group": "runtime",
+      "title": "Python GIL 与多线程性能",
+      "summary": "GIL 是 CPython 解释器层面的互斥锁,使得同一时刻只有一个线程执行 Python 字节码。CPU 密集型多线程无法利用多核,IO 密集型多线程仍能因 IO 释放 GIL 而受益。",
+      "tags": ["Python", "并发", "GIL"],
+      "difficulty": 3,
+      "estimatedMinutes": 25,
+      "order": 10,
+      "recommendWeight": 0.85,
+      "status": "production",
+      "prerequisites": [],
+      "interviewFrequency": "high",
+      "interviewerFocus": "GIL 本质、为什么存在、CPU 密集 vs IO 密集、绕过方式",
+      "learningCards": [
+        {
+          "type": "explain",
+          "title": "GIL 是什么",
+          "content": "GIL(Global Interpreter Lock)是 CPython 解释器内部的一把互斥锁,保证同一时刻只有一个线程在执行 Python 字节码。它不是 Python 语言特性,而是 CPython 实现的产物(因为 CPython 的内存管理尤其是引用计数不是线程安全的)。Jython、IronPython 没有 GIL。"
+        },
+        {
+          "type": "explain",
+          "title": "CPU 密集 vs IO 密集",
+          "content": "CPU 密集型任务:多线程由于 GIL 限制,同一时刻只有一个线程在跑,无法利用多核,甚至比单线程更慢(因为线程切换开销)。应改用 multiprocessing 或 C 扩展释放 GIL。IO 密集型任务:线程在 IO 等待时(读文件、网络、sleep)会释放 GIL,其他线程可执行,所以多线程仍有意义——更推荐 asyncio 协程,单线程切换开销更小。"
+        },
+        {
+          "type": "interviewAnswer",
+          "title": "面试标准答法",
+          "content": "GIL 是 CPython 解释器层面的互斥锁,同一时刻只有一个线程执行字节码,目的是保护引用计数等非线程安全的内存管理。它不是语言特性,Jython 没有。对 CPU 密集型任务,多线程无法用多核,要用 multiprocessing 或 C 扩展(numpy 已释放 GIL);对 IO 密集型,IO 期间释放 GIL,多线程/协程都能受益。Python 3.12+ 的 PEP 703 提议可选移除 GIL,是未来方向。"
+        },
+        {
+          "type": "checklist",
+          "title": "易错点清单",
+          "content": "1) GIL 是 CPython 实现的,不是 Python 语言特性;2) GIL 不阻止 IO 阻塞期间的线程切换;3) CPU 密集用 multiprocessing 不是 threading;4) numpy/C 扩展可在内部释放 GIL。"
+        }
+      ],
+      "recallPrompts": [
+        {"id": "python.gil.recall.1", "prompt": "请讲清 Python GIL 的本质,以及 CPU 密集和 IO 密集任务下多线程表现的差异。", "difficulty": 3},
+        {"id": "python.gil.recall.2", "prompt": "如何绕过 GIL 提升 CPU 密集型任务的并发性能?", "difficulty": 4}
+      ],
+      "rubric": {
+        "mustHave": [
+          "能说清 GIL 是 CPython 解释器层面的互斥锁,非语言特性",
+          "能区分 CPU 密集(无法利用多核)与 IO 密集(可释放 GIL)的表现",
+          "能给出绕过方式:multiprocessing / C 扩展释放 GIL"
+        ],
+        "goodToHave": [
+          "能提到 GIL 存在的原因是保护引用计数的线程安全",
+          "能提到 asyncio 协程对 IO 密集更优",
+          "能提到 PEP 703 / no-GIL 的未来方向"
+        ],
+        "commonMistakes": [
+          "误以为 GIL 是 Python 语言特性",
+          "认为多线程对所有场景都没用,忽略 IO 期间释放 GIL",
+          "用 threading 跑 CPU 密集任务还期望加速"
+        ],
+        "scoreWeights": {"coverage": 25, "accuracy": 30, "interviewExpression": 20, "depth": 25}
+      },
+      "updatedAt": "2026-06-11"
+    }
+  ]
+}

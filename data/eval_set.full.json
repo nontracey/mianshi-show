@@ -1,0 +1,246 @@
+{
+  "contentVersion": "2026.07.01",
+  "n": 30,
+  "evals": [
+    {
+      "question": "手写跳跃游戏的贪心解法代码（5 行核心逻辑），并用 [2,3,1,1,4] 逐下标模拟 farthest 的变化。",
+      "relevant_ids": [
+        "algorithm.greedy.topic-leetcode-55"
+      ],
+      "ground_truth": "给定非负整数数组 nums，每个位置值表示最大跳跃长度，从下标 0 出发判断能否到达末尾；核心做法是维护一个最远可达下标 farthest，线性扫描时若当前位置超过 farthest 则必然无法到达，否则持续扩展 farthest，一旦覆盖末尾即可返回 true。 能正确写出 farthest 贪心解法，解释每行代码的作用 能定义 farthest 的含义并说明 i > farthest 为什么是唯一失败条件 能分析 O(n) 时间 O(1) 空间复杂度 能用具体样例手动模拟 farthest 的变化过程",
+      "domain": "algorithm"
+    },
+    {
+      "question": "消息队列的 at-most-once、at-least-once、exactly-once 语义分别是什么？Kafka 的 exactly-once 能消除消费者侧的重复吗？",
+      "relevant_ids": [
+        "java.middleware.mq-idempotent"
+      ],
+      "ground_truth": "讲清 MQ at-least-once 语义下消费者为什么必须幂等、五种幂等方案的适用条件与局限、去重记录必须与业务操作同事务的原因和丢消息陷阱、去重键选择和清理窗口设计、重试退避与死信队列的工程配合，以及线上排查重复消费的方法论。 能说出 MQ at-least-once 语义及重复消费的根因（网络、超时、重平衡） 能列出至少四种幂等方案并说明适用场景 能讲清去重记录和业务操作必须同事务，否则会静默丢消息 能说明重试上限、指数退避和死信队列的配合设计",
+      "domain": "java"
+    },
+    {
+      "question": "请画出 JVM 运行时数据区，并说明哪些区域线程私有、哪些线程共享，各自的生命周期分别是什么。",
+      "relevant_ids": [
+        "java.jvm.topic-001-ebcc71cb"
+      ],
+      "ground_truth": "JVM 运行时数据区要按线程私有/共享、规范概念/HotSpot 实现、异常类型/OOM 排查入口三层来讲，同时厘清它与 JMM 的本质区别。 能按线程私有（PC、虚拟机栈、本地方法栈）和线程共享（堆、方法区）划分运行时数据区 能说出各区域职责，并准确表达程序计数器是唯一规范保证不抛 OOM 的区域 能讲清虚拟机栈的栈帧结构和 StackOverflowError / OutOfMemoryError 的触发条件 能说明方法区从永久代到元空间的 HotSpot 演进及 JDK 8 分界线 能区分运行时数据区与 JMM 的本质区别",
+      "domain": "java"
+    },
+    {
+      "question": "请设计一个企业级低代码平台的核心架构，说明设计态、发布态、运行态如何围绕元数据协作，并覆盖组件、实体、流程、权限、发布和扩展治理。",
+      "relevant_ids": [
+        "architecture.project-design.topic-low-code"
+      ],
+      "ground_truth": "设计企业级元数据驱动低代码平台，核心是设计态/发布态/运行态三态分离和不可变快照机制，覆盖元数据建模、组件体系、动态实体、流程编排、RBAC+ABAC 权限、缓存预编译、版本灰度回滚和扩展点沙箱治理。 设计态、发布态、运行态三态分离及其工程原因 运行态不可变元数据快照（RuntimeSnapshot） 组件注册表与 props schema、事件、版本和权限声明 动态实体的动态表和 JSON 扩展混合策略与字段数量限制 WorkflowMeta 与流程实例、任务模型、状态一致性 RBAC 菜单按钮权限与 ABAC 数据字段权限，服务端二次鉴权 元数据缓存版本号切换和发布时预编译 RuntimeSnapshot 灰度发布与快照指针回滚 脚本沙箱和插件资源限制、租户级扩展隔离",
+      "domain": "architecture"
+    },
+    {
+      "question": "TCP 为什么需要三次握手？如果只两次会出什么问题？",
+      "relevant_ids": [
+        "frontend.network-security.topic-http-https-tcp"
+      ],
+      "ground_truth": "讲清 TCP/TLS/HTTP 三层协议如何分工协作、三次握手四次挥手的工程意义、TLS 1.2/1.3 密钥协商差异和前向安全、HTTP/1.1→2→3 的两层队头阻塞问题和解法，以及分层排查定位方法。 能说清 TCP/TLS/HTTP 的分层关系和 HTTPS = HTTP over TLS over TCP 能讲清三次握手每步交换了什么、为何不能两次；四次挥手为何不能合并、TIME_WAIT 作用 能说明 TLS 1.2/1.3 握手流程差异和前向安全（ECDHE 临时密钥对） 能对比 HTTP/1.1、HTTP/2、HTTP/3 并区分 HTTP 层队头阻塞和 TCP 层队头阻塞",
+      "domain": "frontend"
+    },
+    {
+      "question": "pytest fixture 的四种作用域各是什么？什么场景选什么作用域？yield 前后分别做什么？",
+      "relevant_ids": [
+        "python.engineering-python.testing"
+      ],
+      "ground_truth": "pytest 凭借函数式断言、fixture 依赖注入、conftest.py 共享、参数化和丰富的插件生态成为 Python 测试的事实标准；核心考点在于 fixture 的作用域与生命周期、mock/monkeypatch 的隔离策略、conftest.py 的层级覆盖规则、测试金字塔的工程落地以及如何用 pytest-cov 和 pytest-xdist 提升覆盖率和执行速度。 能写出带 fixture、参数化、异常断言的完整 pytest 测试文件 能说明 fixture 四种作用域的生命周期、选择依据和 yield 清理机制 能区分 Mock、patch、monkeypatch 的适用场景，知道 patch 必须用使用处路径 能用 conftest.py 共享 fixture 并说明层级覆盖规则",
+      "domain": "python"
+    },
+    {
+      "question": "解释 try/except/else/finally 各自的执行时机，并说明 finally 里有 return 会怎样。",
+      "relevant_ids": [
+        "python.python-advanced.topic-exceptions"
+      ],
+      "ground_truth": "讲清 Python 异常层级（BaseException → Exception）、try/except/else/finally 四子句执行时机与 finally 陷阱、raise from 异常链机制、except 顺序匹配规则，以及 3.11 ExceptionGroup + except* 处理并发多任务失败。 能说出 BaseException/Exception 层级，except Exception 不会捕获 KeyboardInterrupt/SystemExit 能讲清 try/except/else/finally 四子句的执行时机 能解释 raise from 显式异常链（__cause__）和隐式异常链（__context__）的区别 能说明 ExceptionGroup 和 except* 解决并发多异常的作用，以及拆分和传播规则",
+      "domain": "python"
+    },
+    {
+      "question": "请解释 C# 中值类型和引用类型在赋值语义上的差异，并举例说明修改引用类型副本会影响原对象。",
+      "relevant_ids": [
+        "dotnet.csharp.type-system"
+      ],
+      "ground_truth": "讲清 C# 值类型与引用类型在内存布局、赋值语义、GC 参与上的根本差异，掌握装箱拆箱的触发条件与消除手段，区分 Nullable<T> 与可空引用类型各自解决的问题，以及 struct vs class 的工程选型边界。 能区分值类型和引用类型的赋值语义：拷贝整个值 vs 拷贝引用地址 能解释装箱（堆分配 + 值拷贝）和拆箱（类型检查 + 值拷贝）的过程与性能影响 能纠正「值类型一定在栈上」的误解，说明字段嵌入和闭包捕获场景下值类型也在堆上 能区分 Nullable<T>（运行时 HasValue/Value 包装）和可空引用类型（编译器静态分析标注） 能给出 struct vs class 的选型依据：大小、不可变性、继承需求、赋值语义",
+      "domain": "dotnet"
+    },
+    {
+      "question": "设计微博或朋友圈这类 Feed 流，推模式和拉模式各是什么、各有什么问题？生产怎么结合？",
+      "relevant_ids": [
+        "architecture.system-design.topic-feed-system"
+      ],
+      "ground_truth": "讲清 Feed 流推模式（写扩散）的读快但大 V 写放大、拉模式（读扩散）的写轻但关注多时读重、推拉结合按粉丝量和活跃度分流的生产方案、Redis ZSet 收件箱限长与冷热分离、读时可见性过滤（删除/拉黑/私密不回收拷贝），以及时间序 vs 推荐序的架构分野。 能讲清推模式（写扩散）的机制、读快的优势和大 V 写放大问题 能讲清拉模式（读扩散）的机制、写轻的优势和关注多时读重问题 能讲清推拉结合的分流逻辑：按粉丝量分流 + 按活跃度优化 能说明 Redis ZSet 收件箱设计（score 时间戳、member 内容 ID、限长冷热分离）",
+      "domain": "architecture"
+    },
+    {
+      "question": "请完整讲解 Seata 的 TC/TM/RM 三角色、XID 传播机制和分支事务注册流程。",
+      "relevant_ids": [
+        "java.microservice.topic-062-ce26874b"
+      ],
+      "ground_truth": "讲清 Seata v2.6 的 TC/TM/RM 三角色、XID 跨链路传播、AT 模式 before/after image 与 undo_log 全局锁机制，以及 AT/TCC/Saga/XA 四种模式的选型边界、生产故障排查与更轻替代方案。 能准确解释 TC/TM/RM 三角色职责和 XID 跨链路传播机制 能讲清 AT 一阶段 before image、after image、undo_log、全局锁和本地提交的完整顺序 能区分 AT/TCC/Saga/XA 四种模式的适用场景、侵入性和核心代价 能说明 XID 丢失、旁路写、全局锁冲突和脏写带来的一致性风险及排查方法",
+      "domain": "java"
+    },
+    {
+      "question": "原型模式适合什么场景？浅拷贝在基本值、不可变引用、可变引用三类字段上分别是什么行为？",
+      "relevant_ids": [
+        "design-pattern.creational.topic-yuan-xing-mo-shi"
+      ],
+      "ground_truth": "通过克隆已有对象避免重复初始化开销，理解浅拷贝在基本值、不可变引用、可变引用三类字段上的行为差异，掌握 Cloneable 的设计缺陷以及拷贝构造函数/序列化往返两种更优的深拷贝替代方案，并区分原型模式与工厂模式、Spring prototype scope 的本质差异。 能说出原型模式的两类动机：初始化成本高、大量相似对象 能区分浅拷贝/深拷贝在基本值、不可变引用、可变引用上的差异 能写出 Cloneable + super.clone() + 手动重建可变字段的完整实现模板 能区分原型模式与工厂模式的关注点差异（蓝本复制 vs 类型创建）",
+      "domain": "design-pattern"
+    },
+    {
+      "question": "请手写合并两个有序链表的迭代解法，并解释哑节点的作用。",
+      "relevant_ids": [
+        "algorithm.linked-list.topic-leetcode-21"
+      ],
+      "ground_truth": "用哑节点 + 双指针迭代合并两条升序链表，时间 O(n+m)、空间 O(1)；递归写法空间 O(n+m) 但代码更简洁；面试首选迭代法，哑节点是消除头节点特判的关键技巧。 能正确使用哑节点消除头节点特判，并返回 dummy.next 能手写迭代解法：循环比较 → 选小的接入 → curr 前进 → 剩余直接接上 能分析迭代法 O(n+m) 时间、O(1) 空间的来源 能解释循环结束后剩余链表直接接上不影响有序性",
+      "domain": "algorithm"
+    },
+    {
+      "question": "请完整讲一下 MyBatis 一次查询的调用链路，从 Mapper 接口方法调用到结果返回。",
+      "relevant_ids": [
+        "java.spring.topic-052-976f7efa"
+      ],
+      "ground_truth": "MyBatis 通过 SqlSessionFactory 构建 Configuration 和 MappedStatement 映射注册表，Mapper 接口由 JDK 动态代理（MapperProxy）转换为 SqlSession 调用，Executor 管理一级缓存与 Statement 执行策略（Simple/Reuse/Batch），CachingExecutor 装饰器承载二级缓存但分布式场景易脏读；StatementHandler 驱动 PreparedStatement 完成参数绑定（#{} 预编译安全、${} 拼接有注入风险）、结果映射由 ResultSetHandler 完成；动态 SQL 标签在运行时按 OGNL 表达式遍历 SqlNode 树拼接 SQL 片段；插件（Interceptor）通过 JDK 动态代理拦截四个核心组件形成拦截链。 能按 SqlSession → CachingExecutor（二级缓存）→ BaseExecutor（一级缓存）→ StatementHandler → ParameterHandler → ResultSetHandler 讲清一次查询的完整执行链 能解释 MapperProxy 如何通过 JDK 动态代理把接口方法映射到 MappedStatement 能说清 #{} 预编译和 ${} 拼接的安全边界，以及为什么表名/列名只能用 ${} 能区分一级缓存和二级缓存的作用域、失效条件，以及二级缓存在分布式环境的脏读风险",
+      "domain": "java"
+    },
+    {
+      "question": "手写最长连续序列的哈希表解法代码，说明「只从起点扩张」的机制和时间复杂度分析。",
+      "relevant_ids": [
+        "algorithm.hash-table.topic-leetcode-128"
+      ],
+      "ground_truth": "给定未排序整数数组，找数字连续的最长序列长度。核心技巧是用 HashSet 存所有数字，只从「序列起点」（num-1 不在集合中）开始向后扩张，保证每个数字最多被访问两次，实现 O(n) 时间。 能写出哈希表解法：HashSet 存数字、起点判断 num-1 不在集合中、内层 while 向后扩张 能解释「只从起点扩张」如何保证每个数字最多被内层访问一次，总操作 ≤ 2n = O(n) 能正确处理边界：空数组返回 0、重复元素由 HashSet 去重、负数正常 能分析时间复杂度 O(n) 和空间复杂度 O(n)",
+      "domain": "algorithm"
+    },
+    {
+      "question": "ETL 和 ELT 的核心差别是什么？为什么云数仓/湖仓场景下 ELT 成为主流？",
+      "relevant_ids": [
+        "data-engineering.foundation.etl-elt"
+      ],
+      "ground_truth": "对比 ETL/ELT 转换位置差异及其对算力归属、原始数据保留和 Schema 治理的影响，讲清全量/增量/CDC 三种入仓策略的适用场景、源端压力和 delete 捕获能力，结合 DataX、Sqoop、Flink CDC、Canal 的工具选型与 CDC 链路的幂等、binlog 过期、upsert 等生产边界。 ETL 在外部转换、ELT 在仓内转换；ELT 必须保留 ODS 原始层用于重算 全量/增量/CDC 三种策略的适用场景，以及只有 CDC 能捕获物理 delete DataX 适合离线异构批同步、Flink CDC 适合实时入湖、Canal 只覆盖 MySQL、Sqoop 已停止维护 CDC 链路必须声明主键并下游 upsert，否则 update/delete 事件会写错 Flink CDC 2.x 增量快照通过 chunk 分片避免全表锁，与 1.x 全局锁有本质区别",
+      "domain": "data-engineering"
+    },
+    {
+      "question": "请比较标记-清除、复制/迁移、标记-整理的核心动作、收益、代价和适用区域。",
+      "relevant_ids": [
+        "java.jvm.topic-005-af0a37c3"
+      ],
+      "ground_truth": "GC 算法的核心不是背三种名称，而是理解从 GC Roots 标记存活对象后，如何在复制成本、碎片、移动对象、停顿时间和并发屏障成本之间取舍——这些取舍直接决定新生代/老年代/Region 级别的回收策略和线上问题的根因定位。 能准确解释标记-清除、复制/迁移、标记-整理的流程、收益和代价 能按对象存活率、碎片、移动成本、目标空间和停顿目标解释算法取舍 能说明分代收集和 Region 化收集为什么会组合基础算法 能说明三色标记和屏障在并发 GC 中维护正确性的作用",
+      "domain": "java"
+    },
+    {
+      "question": "请列举常见 GC Roots，并说明可达性分析如何判断对象是否可回收。",
+      "relevant_ids": [
+        "java.jvm.topic-006-e97a07bb"
+      ],
+      "ground_truth": "用 GC Roots 可达性判断对象生死；用强、软、弱、虚四种引用描述对象只剩特定引用可达时的清理时机，理解 Reference 阶段在 GC 中的位置；落到 ThreadLocal 泄漏链路和 heap dump 引用链排查。 能解释 GC Roots 可达性分析的机制，并说明为何比引用计数更适合处理循环引用 能列出主要 GC Roots 类型，说明根集合因实现和运行状态而变化 能区分强/软/弱/虚四种引用的清理时机和工程用途 能说明 Reference Processing 发生在 GC 标记完成后、清除前，不是立即释放",
+      "domain": "java"
+    },
+    {
+      "question": "请说明 JDK SPI 的实现机制（配置位置、ServiceLoader 行为），并举一个标准库中的应用例子。",
+      "relevant_ids": [
+        "java.spring.topic-spi"
+      ],
+      "ground_truth": "对比 JDK SPI（ServiceLoader）、Spring SPI（spring.factories → AutoConfiguration.imports）与 Dubbo SPI（ExtensionLoader）的发现机制、加载策略与工程取舍，覆盖线程安全、类加载边界和常见失败路径。 能解释 SPI 的解耦思想和面向接口编程 能写出 JDK SPI 的 META-INF/services 配置和 ServiceLoader 用法 能举出 JDBC 驱动等典型应用 能说明 Spring 自动装配的 SPI 本质及从 spring.factories 到 .imports 的迁移",
+      "domain": "java"
+    },
+    {
+      "question": "请解释 Python 迭代器协议，区分可迭代对象、迭代器和生成器。for 循环底层是怎么工作的？",
+      "relevant_ids": [
+        "python.python-advanced.generators-iterators"
+      ],
+      "ground_truth": "讲清 Python 迭代器协议（__iter__/__next__/StopIteration）、生成器的栈帧暂停恢复机制、send/throw/close/yield from 双向通道、生成器表达式的惰性求值与 O(1) 内存，以及生成器只能迭代一次、PEP 479 等工程边界。 能准确解释迭代器协议（__iter__/__next__/StopIteration）及 for 循环的展开逻辑 能区分可迭代对象、迭代器、生成器三者的关系和生命周期差异 能解释生成器栈帧暂停恢复机制——调用不执行、next 才启动、yield 冻结局部变量 能对比列表推导式 O(n) 与生成器表达式 O(1) 的内存和性能取舍",
+      "domain": "python"
+    },
+    {
+      "question": "Python multiprocessing 的 Pool.map 和 Pool.imap_unordered 有什么区别？大数据量时如何选择？",
+      "relevant_ids": [
+        "python.concurrent-python.multiprocessing"
+      ],
+      "ground_truth": "讲清 Python 多进程绕过 GIL 实现 CPU 真并行、进程独立内存空间靠 IPC 通信、Pool 并行计算模式与进程数选择、spawn/fork/forkserver 启动机制差异、main 保护与 pickle 序列化限制、以及进程创建开销与任务粒度的工程取舍。 能说出多进程绕过 GIL 实现 CPU 并行、适合 CPU 密集型任务 能说明进程独立内存空间、数据不共享、必须用 IPC 能列出 Queue/Pipe/Value+Array/Manager 四种 IPC 方式及其适用场景 能用 Pool 做并行计算并合理设进程数 能说明 spawn 模式必须加 if __name__ == '__main__' 保护的原因",
+      "domain": "python"
+    },
+    {
+      "question": "请完整说明 ReAct 的 Thought-Action-Observation 循环原理、为什么比纯 CoT 减少幻觉、以及生产中如何防止工具调用失控。",
+      "relevant_ids": [
+        "agent.tool-agent.topic-123-b51b29dc"
+      ],
+      "ground_truth": "ReAct 以 Thought-Action-Observation 循环实现边推理边调用工具的探索式执行，适合路径不确定、需实时修正的任务；Plan-and-Execute 先生成全局计划再逐步执行，适合步骤可预分解、需成本和进度可控的复杂任务；生产系统常混合使用，由编排层治理轮数预算、重规划触发、人工确认点和失败恢复。 能说清 ReAct 的 Thought-Action-Observation 循环原理及动态修正能力 能说清 Plan-and-Execute 的 Planner-Executor-Replanner 三角色架构和重规划机制 能按任务路径确定性、步骤依赖度、成本、延迟、人工确认需求做选型 能用 trace、步骤数、工具调用次数、无效调用率、重规划次数和任务完成率验证效果",
+      "domain": "agent"
+    },
+    {
+      "question": "请手写验证二叉搜索树的递归解法，说明 low/high 上下界如何传递，以及为什么用 long 类型。",
+      "relevant_ids": [
+        "algorithm.binary-tree.topic-leetcode-98"
+      ],
+      "ground_truth": "验证二叉搜索树的核心是：每个节点不仅要比直接子节点大/小，还必须落在祖先传递下来的全局有效区间内——递归解法向上传递收紧的上下界，中序遍历解法利用严格递增性质逐个比较。两种解法时间都是 O(n)，空间分别是 O(h) 和 O(n)，面试首选递归传区间。 能写出递归传区间解法，正确传递 low/high 上下界，使用 long 类型避免溢出 能解释 BST 的全局约束：左子树所有节点 < 根 < 右子树所有节点，不能只比父子 能说明为什么判断条件是 node.val <= low || node.val >= high（严格不等） 能写出中序遍历解法，利用 BST 中序遍历严格递增的性质 能正确分析两种解法的时间 O(n) 和空间复杂度 O(h) vs O(n)",
+      "domain": "algorithm"
+    },
+    {
+      "question": "请解释堆内存中对象从 TLAB/Eden 到 Survivor/Old 的分配与晋升路径，哪些条件会触发提前晋升？",
+      "relevant_ids": [
+        "java.jvm.topic-002-3bee1565"
+      ],
+      "ground_truth": "堆内存要讲清对象实际分配路径（逃逸分析→TLAB→Eden/Humongous）、Young GC 存活复制与晋升条件、不同收集器的堆布局与大对象差异、以及如何用 GC 日志/heap dump 区分分配速率过高、晋升过快和真实内存泄漏四条主线。 能讲清对象分配的完整路径：逃逸分析→TLAB→Eden/young region 能解释 Young GC 的触发、存活复制和四条晋升路径 能区分传统分代与 G1 在堆布局、Young 大小和大对象处理上的差异 能用 GC 日志区分分配速率过高、晋升过快和真实内存泄漏 能指出增大堆不是解决泄漏的根本方法",
+      "domain": "java"
+    },
+    {
+      "question": "请手写 LeetCode 27 快慢指针解法，说明 slow 和 fast 的含义以及不变量。",
+      "relevant_ids": [
+        "algorithm.two-pointer.topic-leetcode-27"
+      ],
+      "ground_truth": "给定数组 nums 和值 val，原地移除所有等于 val 的元素并返回新长度——核心是快慢指针：fast 遍历扫描，slow 标记写入位置，遇 val 只推进 fast，非 val 写入 slow 位置并双指针同移，O(n) 时间 O(1) 空间，保序；若允许改变顺序，尾部交换可减少写入次数。 能写出快慢指针解法并解释不变量：[0, slow) 是已确认的保留区 能分析 O(n) 时间 O(1) 空间，解释为什么不需要清理尾部元素 能正确处理空数组和全 val 的边界情况",
+      "domain": "algorithm"
+    },
+    {
+      "question": "请完整说明 .NET 微服务通信中服务发现、通信方式选择和弹性策略三件事。",
+      "relevant_ids": [
+        "dotnet.microservice-dotnet.communication"
+      ],
+      "ground_truth": "讲清 .NET 微服务通信的服务发现（Consul/IHttpClientFactory 集成）、同步与异步通信的取舍、Polly 弹性策略（重试指数退避+幂等要求/熔断半开恢复/舱壁隔离/降级兜底）、Ocelot 网关路由限流聚合，以及同步调用链雪崩风险、重试幂等和网格边界。 能说出微服务通信要解决服务发现、通信方式、弹性三件事 能区分同步（HTTP/gRPC）和异步（消息）通信及各自适用场景 能说明 Polly 的重试/熔断/超时/舱壁/降级五种策略及其组合顺序 能解释重试必须幂等并说明实现方式",
+      "domain": "dotnet"
+    },
+    {
+      "question": "请对比令牌桶和漏桶两种限流算法的区别、适用场景，并说明固定窗口为什么有边界问题、滑动窗口怎么解决。",
+      "relevant_ids": [
+        "architecture.microservice.topic-rate-limiting"
+      ],
+      "ground_truth": "讲清限流（令牌桶允许突发、漏桶强制平滑、固定窗口有边界问题、滑动窗口精确统计）、熔断（Closed→Open→Half-Open 状态机、错误率/慢调用比例/异常数三类触发条件、恢复与探测机制）、降级（默认值/备用服务/同步转异步/功能裁剪四策略）三件套的机制与适用，以及单机 vs 集群限流的配额共享问题、熔断阈值要压测调优避免误熔断、Sentinel/Resilience4j 选型边界。 能区分限流（入口预算控制）、熔断（切断故障下游）、降级（牺牲非核心保核心）三者目标和执行顺序 能对比令牌桶（允许突发）、漏桶（强制平滑）、固定窗口（边界突发）、滑动窗口（精确统计）四种算法 能讲清熔断器 Closed→Open→Half-Open 状态机及三类触发条件（错误率/慢调用/异常数） 能列举降级四种策略并说明 fallback 必须比主逻辑更可靠",
+      "domain": "architecture"
+    },
+    {
+      "question": "请手写代码：在非递减排序数组中查找 target 的第一个和最后一个位置，时间复杂度 O(log n)。",
+      "relevant_ids": [
+        "algorithm.binary-search.topic-leetcode-34"
+      ],
+      "ground_truth": "给定非递减排序数组和目标值 target，用两次二分查找分别定位 target 的左边界（第一个出现位置）和右边界（最后一个出现位置），时间 O(log n)、空间 O(1)；核心在于左边界查找在 nums[mid] >= target 时继续向左收缩，右边界查找在 nums[mid] <= target 时继续向右收缩，并在最终结果处校验是否越界及是否等于 target。 能说出用两次二分查找分别找左右边界的思路 能写出左右边界查找的完整代码（命中后继续收缩，不是直接返回） 能正确处理空数组和 target 不存在的边界情况（返回 [-1,-1]） 能分析时间复杂度 O(log n)、空间 O(1)",
+      "domain": "algorithm"
+    },
+    {
+      "question": "什么是事件驱动架构？它和同步调用、消息队列的本质区别是什么？什么时候不应该用事件驱动？",
+      "relevant_ids": [
+        "architecture.methodology.topic-event-driven"
+      ],
+      "ground_truth": "以领域事件为协作契约，通过 Outbox 保证可靠投递、幂等消费保障至少一次语义、Saga+对账实现最终一致性；配套事件风暴建模方法和 Event Sourcing 存储模式，平衡解耦收益与异步复杂度。 领域事件四要素：过去时命名、不可变、eventId 唯一、occurredAt 业务时间戳 事务性 Outbox：业务事务内写库+写 outbox 同一原子单元，Relay 异步投递 Kafka 不丢四件套：acks=all + min.insync.replicas≥2 + 手动 commit + Outbox 幂等消费三方案：业务幂等键 / 去重表+eventId / 乐观锁版本号 单聚合有序保证：partition key = aggregateId，跨聚合靠 version 补偿 Saga 补偿模式：每个本地事务配反向补偿，编排器驱动，对账兜底",
+      "domain": "architecture"
+    },
+    {
+      "question": "请讲一下 ODS、DWD、DWS、ADS 各自的粒度和 SLA，以及为什么 DWD 不允许做 SUM/COUNT 汇总。",
+      "relevant_ids": [
+        "data-engineering.foundation.warehouse-layering"
+      ],
+      "ground_truth": "讲清 ODS/DWD/DWS/ADS 各层粒度、SLA 与禁止动作，Inmon 与 Kimball 的交付路径与治理强度差异，以及如何用血缘、指标平台和调度基线避免分层失控、口径分裂和跨层依赖。 ODS/DWD/DWS/ADS 四层的粒度差异、典型 SLA 时间点和各自的禁止动作 DWD 不做汇总、ADS 不跨层直连 ODS 这两条核心约束及其工程原因 Kimball 的事实表 + 一致性维度建模思路与分层规范的正交关系 通过血缘平台从 ADS 反向追溯到 ODS 的排查路径和具体判断手段",
+      "domain": "data-engineering"
+    },
+    {
+      "question": "请分别用类实现和 @contextmanager 实现一个计时上下文管理器，要求即使 with 块抛异常也能打印耗时。",
+      "relevant_ids": [
+        "python.python-advanced.context-managers"
+      ],
+      "ground_truth": "理解 with 语句的 __enter__/__exit__ 协议、@contextmanager 生成器实现原理，掌握 ExitStack 动态资源管理和 suppress 等 contextlib 工具，能在工程场景中选对实现方式并规避资源泄漏和异常吞没等常见问题。 能解释 with 语句的三步执行流程：__enter__ 获取资源、执行代码块、__exit__ 释放资源 能用类和 @contextmanager 两种方式实现上下文管理器，并说明各自的适用场景 能解释 __exit__ 的 exc_type/exc_val/exc_tb 参数含义和返回值对异常传播的影响 能说明 @contextmanager 中 yield 必须在 try/finally 里的原因 能使用 ExitStack 管理动态数量资源和 suppress 忽略特定异常",
+      "domain": "python"
+    }
+  ]
+}

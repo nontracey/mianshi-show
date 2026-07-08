@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DotnetAiService</RootNamespace>
+    <AssemblyName>DotnetAiService</AssemblyName>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- 零外部 NuGet 依赖:ASP.NET Core 8 内置 HttpClient/JsonSerializer,够用。
+       Swagger 待补(装 Swashbuckle 后取消注释下方行):
+       <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  -->
+
+</Project>
