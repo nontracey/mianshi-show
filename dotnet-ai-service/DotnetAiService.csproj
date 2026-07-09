@@ -10,7 +10,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Swagger UI(/docs);其余走 ASP.NET Core 8 内置 HttpClient/JsonSerializer -->
+    <!-- Semantic Kernel(1.x):Kernel/ChatCompletion/Embedding + OpenAI 连接器 -->
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.78.*" />
+    <PackageReference Include="Microsoft.SemanticKernel.Connectors.OpenAI" Version="1.78.*" />
+    <!-- Swagger UI(/docs) -->
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
 

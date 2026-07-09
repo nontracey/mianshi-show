@@ -7,16 +7,34 @@ import com.nontracey.aiservice.rag.Loader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 
 /** LLM-as-judge 评估:按 topic 的 rubric 结构化打分,temperature=0 保证可复现。
- * 用 ChatClient + 强制 JSON 输出;解析失败降级(degraded=true)。 */
+ * 用 ChatClient + BeanOutputConverter:把 record 的 JSON Schema 自动塞进 Prompt,
+ * 再把模型输出反序列化成强类型 EvalOutput(比手写 Jackson 解析更稳、编译期类型保证)。
+ * 解析失败降级(degraded=true)。 */
 @Service
 public class EvaluatorService {
 
     private static final Logger log = LoggerFactory.getLogger(EvaluatorService.class);
+
+    /** LLM 输出契约(字段名即 JSON key,与 SYSTEM 模板里写的 JSON 结构一致)。 */
+    public record EvalOutput(
+            int score,
+            Map<String, Integer> dimension_scores,
+            List<String> hit_points,
+            List<String> missed,
+            List<String> mistakes,
+            String feedback
+    ) {}
+
+    /** BeanOutputConverter 一次性构造,复用 schema 生成结果。 */
+    private static final BeanOutputConverter<EvalOutput> CONVERTER = new BeanOutputConverter<>(EvalOutput.class);
+    private static final String FORMAT = CONVERTER.getFormat();
+
     private static final String SYSTEM = """
             你是资深技术面试官,按给定评分标准客观评估候选人回答,输出严格 JSON。
             评分维度与权重:%s
@@ -37,7 +55,6 @@ public class EvaluatorService {
         this.loader = loader;
     }
 
-    @SuppressWarnings("unchecked")
     public Evaluation evaluate(String questionId, String userAnswer) {
         String topicId = extractTopicId(questionId);
         Topic t = loader.get(topicId);
@@ -54,6 +71,8 @@ public class EvaluatorService {
                 rubric.getOrDefault("goodToHave", List.of()),
                 rubric.getOrDefault("commonMistakes", List.of())
         );
+        // BeanOutputConverter 的 format 描述(含 JSON Schema)拼到 system 末尾,让模型按 schema 输出
+        String systemWithFormat = system + "\n输出格式:\n" + FORMAT;
 
         // 找题面
         String questionText = "";
@@ -65,59 +84,37 @@ public class EvaluatorService {
         }
 
         String userMsg = "题目:" + questionText + "\n\n候选人回答:\n" + userAnswer;
-        String content;
+        EvalOutput out;
         try {
-            content = chatClient.prompt()
-                    .system(s -> s.text(system))
+            // .entity(EvalOutput.class) 内部用 BeanOutputConverter 反序列化模型输出
+            out = chatClient.prompt()
+                    .system(s -> s.text(systemWithFormat))
                     .user(userMsg)
                     .call()
-                    .content();
+                    .entity(EvalOutput.class);
         } catch (Exception e) {
             log.error("评估 LLM 调用失败,降级:{}", e.getMessage());
             return degraded("评估服务暂时不可用:" + e.getMessage());
         }
 
-        try {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> obj = mapper.readValue(content, Map.class);
-            return parse(obj);
-        } catch (Exception e) {
-            log.warn("评估 JSON 解析失败,降级:{}", e.getMessage());
-            return degraded("评估输出非合法 JSON");
+        if (out == null) {
+            log.warn("评估 entity() 返回 null(模型输出无法解析),降级");
+            return degraded("评估输出无法解析为结构化 JSON");
         }
+        return toEvaluation(out);
     }
 
-    @SuppressWarnings("unchecked")
-    private Evaluation parse(Map<String, Object> obj) {
-        int score = obj.get("score") instanceof Number n ? n.intValue() : 0;
-        score = Math.max(0, Math.min(100, score));
-        Map<String, Integer> dim = new HashMap<>();
-        Object d = obj.getOrDefault("dimension_scores", Map.of());
-        if (d instanceof Map<?, ?> dm) {
-            for (Map.Entry<?, ?> e : dm.entrySet()) {
-                if (e.getKey() instanceof String k && e.getValue() instanceof Number v) {
-                    dim.put(k, v.intValue());
-                }
-            }
-        }
+    private static Evaluation toEvaluation(EvalOutput o) {
+        int score = Math.max(0, Math.min(100, o.score()));
         return new Evaluation(
                 score,
-                dim,
-                toStringList(obj.get("hit_points")),
-                toStringList(obj.get("missed")),
-                toStringList(obj.get("mistakes")),
-                (String) obj.getOrDefault("feedback", ""),
+                o.dimension_scores() == null ? Map.of() : o.dimension_scores(),
+                o.hit_points() == null ? List.of() : o.hit_points(),
+                o.missed() == null ? List.of() : o.missed(),
+                o.mistakes() == null ? List.of() : o.mistakes(),
+                o.feedback() == null ? "" : o.feedback(),
                 false
         );
-    }
-
-    private List<String> toStringList(Object o) {
-        if (o instanceof List<?> l) {
-            List<String> out = new ArrayList<>();
-            for (Object x : l) out.add(String.valueOf(x));
-            return out;
-        }
-        return List.of();
     }
 
     private Evaluation degraded(String feedback) {

@@ -1,6 +1,10 @@
+using System.ClientModel;
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.Connectors.OpenAI;
+using OpenAI;
 using DotnetAiService.Common;
 using DotnetAiService.Services;
 
@@ -12,10 +16,28 @@ builder.Services.Configure<AppOptions>(builder.Configuration.GetSection("App"));
 // 否则只注册了 IOptions<AppOptions>,GET 端点注入 AppOptions 会被当成请求体 → 运行时抛
 // "Body was inferred but the method does not allow inferred body parameters"。
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<AppOptions>>().Value);
-builder.Services.AddHttpClient<LlmClient>();
+
+// Semantic Kernel singleton:ChatCompletion + Embedding(共用 OpenAIClient,支持自定义 endpoint)
+builder.Services.AddSingleton<Kernel>(sp =>
+{
+    var opts = sp.GetRequiredService<AppOptions>();
+    var openAIClient = new OpenAIClient(
+        new ApiKeyCredential(opts.OpenAI.ApiKey),
+        new OpenAIClientOptions { Endpoint = new Uri(opts.OpenAI.BaseUrl.TrimEnd('/')) });
+    var kb = Kernel.CreateBuilder();
+#pragma warning disable SKEXP0001  // AddOpenAITextEmbeddingGeneration 是 experimental
+    kb.AddOpenAIChatCompletion(opts.OpenAI.ChatModel, openAIClient);
+    kb.AddOpenAITextEmbeddingGeneration(opts.OpenAI.EmbeddingModel, openAIClient);
+#pragma warning restore SKEXP0001
+    return kb.Build();
+});
+
+builder.Services.AddSingleton<LlmClient>();  // 注入 Kernel + AppOptions(SK 内部管理 HttpClient)
+builder.Services.AddHttpClient<KnowledgeBase>();  // KB 拉远程 manifest 需要 HttpClient
 builder.Services.AddSingleton<KnowledgeBase>();
 builder.Services.AddSingleton<RagService>();
 builder.Services.AddSingleton<InterviewService>();
+builder.Services.AddSingleton<AgentPlugin>();  // [KernelFunction] 工具,供 AgentService 用
 builder.Services.AddSingleton<AgentService>();
 builder.Services.AddSingleton<Metrics>();
 builder.Services.AddSingleton<SemanticCache>();
@@ -25,6 +47,8 @@ builder.Services.AddSwaggerGen();
 var app = builder.Build();
 
 app.UseMiddleware<TraceIdMiddleware>();
+app.UseMiddleware<TenantMiddleware>();      // X-Tenant-Id 头 -> TenantContext
+app.UseMiddleware<RateLimitMiddleware>();   // 每租户限流
 app.UseSwagger();
 app.UseSwaggerUI(o => o.RoutePrefix = "docs");  // /docs 看接口(与 C 对齐)
 

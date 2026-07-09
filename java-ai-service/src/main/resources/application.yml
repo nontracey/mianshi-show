@@ -8,6 +8,11 @@ server:
 spring:
   application:
     name: java-ai-service
+  # 默认排除 PgVectorStore 自动配置(避免和内存版 VectorStoreService Bean 冲突 + 连 Postgres 失败);
+  # 启用 pgvector 模式时设 app.vector-store=pgvector 并去掉此 exclude(或用 profile)
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.autoconfigure.vectorstore.pgvector.PgVectorStoreAutoConfiguration
   ai:
     openai:
       base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
@@ -19,6 +24,21 @@ spring:
       embedding:
         options:
           model: ${EMBEDDING_MODEL:text-embedding-3-small}
+    # pgvector 生产向量库(app.vector-store=pgvector 时启用,需配 PG 连接)
+    vectorstore:
+      pgvector:
+        dimensions: ${PGVECTOR_DIMENSIONS:1536}
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        initialize-schema: true
+        table-name: vector_store
+        schema-name: public
+
+  # pgvector 数据源(仅 app.vector-store=pgvector 时用)
+  datasource:
+    url: ${PG_URL:jdbc:postgresql://localhost:5432/ai_service}
+    username: ${PG_USER:postgres}
+    password: ${PG_PASSWORD:postgres}
 
 # 自定义配置
 app:

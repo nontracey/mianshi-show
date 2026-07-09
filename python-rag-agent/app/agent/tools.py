@@ -2,6 +2,9 @@
 
 每个工具 = Python 执行函数 + OpenAI tool schema。
 agent 在 retrieve 节点把工具列表传给 LLM,LLM 决定调哪个(真实 Function Calling)。
+
+工具清单:search_knowledge / save_note。
+(get_scoring_rubric 已移除:rubric 直接从 KB 读更稳,让 LLM 多绕一圈调工具反增不确定性。)
 """
 
 from __future__ import annotations
@@ -9,9 +12,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.rag.loader import get_kb
 from app.rag.retriever import get_retriever
-from app.schemas import Source
 
 logger = logging.getLogger(__name__)
 
@@ -33,22 +34,6 @@ async def search_knowledge(query: str, top_k: int = 4) -> dict[str, Any]:
             }
             for d in res.docs
         ],
-    }
-
-
-def get_scoring_rubric(question_id: str) -> dict[str, Any]:
-    """查 question_id 对应 topic 的评分标准(rubric)。"""
-    from app.interview.evaluator import _extract_topic_id
-
-    topic_id = _extract_topic_id(question_id)
-    kb = get_kb()
-    topic = kb.get(topic_id)
-    if topic is None:
-        return {"error": f"topic 不存在:{topic_id}"}
-    return {
-        "topic_id": topic.id,
-        "title": topic.title,
-        "rubric": topic.rubric,
     }
 
 
@@ -78,20 +63,6 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
-            "name": "get_scoring_rubric",
-            "description": "查某道题的评分标准(must_have/good_to_have/common_mistakes)。用于评估前明确要点。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "question_id": {"type": "string", "description": "题目 id,如 java.concurrency.volatile.recall.1"},
-                },
-                "required": ["question_id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "save_note",
             "description": "记一条学习笔记(如评估反馈、学习建议)。演示用,存内存。",
             "parameters": {
@@ -108,7 +79,6 @@ TOOL_SCHEMAS = [
 # 工具名 -> 执行函数(同步/异步均可)
 TOOL_REGISTRY = {
     "search_knowledge": search_knowledge,
-    "get_scoring_rubric": get_scoring_rubric,
     "save_note": save_note,
 }
 

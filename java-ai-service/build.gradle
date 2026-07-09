@@ -14,8 +14,14 @@ java {
 }
 
 repositories {
-    mavenCentral()
+    // 国内源优先(阿里云代理 maven central / spring releases)
+    maven { url 'https://maven.aliyun.com/repository/public' }
+    maven { url 'https://maven.aliyun.com/repository/spring' }
+    maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+    // 阿里云不代理 spring milestone,必须保留官方源(Spring AI 1.0.0-M4 在这)
     maven { url 'https://repo.spring.io/milestone' }
+    // 兜底
+    mavenCentral()
 }
 
 ext {
@@ -30,6 +36,10 @@ dependencies {
 
     // Spring AI(OpenAI 兼容,可切通义/DeepSeek)
     implementation 'org.springframework.ai:spring-ai-openai-spring-boot-starter'
+
+    // pgvector 生产向量库(可选:app.vector-store=pgvector 时启用)
+    implementation 'org.springframework.ai:spring-ai-pgvector-store-spring-boot-starter'
+    runtimeOnly 'org.postgresql:postgresql'
 
     // Swagger UI
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'

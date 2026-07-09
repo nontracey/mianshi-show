@@ -16,13 +16,15 @@ public class TraceIdMiddleware
         var traceId = Guid.NewGuid().ToString("N");
         Current.Value = traceId;
         ctx.Items["TraceId"] = traceId;
+        // 在 _next 前设 header(response 还没 started);放 finally 会因 "Headers are read-only" 抛异常
+        ctx.Response.Headers["X-Trace-Id"] = traceId;
         try
         {
             await _next(ctx);
         }
         finally
         {
-            ctx.Response.Headers["X-Trace-Id"] = traceId;
+            Current.Value = null;
         }
     }
 

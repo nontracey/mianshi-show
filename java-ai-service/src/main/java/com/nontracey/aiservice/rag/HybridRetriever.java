@@ -1,15 +1,18 @@
 package com.nontracey.aiservice.rag;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nontracey.aiservice.common.TenantContext;
 import com.nontracey.aiservice.rag.Splitter.Chunk;
 import com.nontracey.aiservice.rag.VectorStoreService.ScoredDoc;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** 混合检索:向量 + BM25(纯 Java TF-IDF 式)+ RRF 融合 + 可选 LLM 重排。
- * 与 B/D 同策略;hybrid_rerank 用 LLM 对融合结果重排(跨语言一致,无需部署 cross-encoder)。 */
+ * 与 B/D 同策略;hybrid_rerank 用 LLM 对融合结果重排(跨语言一致,无需部署 cross-encoder)。
+ * <p>按租户隔离:BM25 索引按 {@link TenantContext#get()} 分桶存储。 */
 @Service
 public class HybridRetriever {
 
@@ -17,7 +20,7 @@ public class HybridRetriever {
 
     private final VectorStoreService vectorStore;
     private final ChatClient chatClient;
-    private final Bm25Index bm25 = new Bm25Index();
+    private final Map<String, Bm25Index> bm25ByTenant = new ConcurrentHashMap<>();
 
     public HybridRetriever(VectorStoreService vectorStore, ChatClient chatClient) {
         this.vectorStore = vectorStore;
@@ -25,7 +28,9 @@ public class HybridRetriever {
     }
 
     public void rebuildBm25(List<Chunk> chunks) {
-        bm25.build(chunks);
+        Bm25Index idx = new Bm25Index();
+        idx.build(chunks);
+        bm25ByTenant.put(TenantContext.get(), idx);
     }
 
     public List<ScoredDoc> retrieve(String query, int topK, String mode) {
@@ -36,7 +41,8 @@ public class HybridRetriever {
             return vec.subList(0, Math.min(topK, vec.size()));
         }
 
-        List<Bm25Index.Hit> bm = bm25.query(query, vecK);
+        Bm25Index idx = bm25ByTenant.get(TenantContext.get());
+        List<Bm25Index.Hit> bm = idx == null ? List.of() : idx.query(query, vecK);
         List<ScoredDoc> fused = rrfFuse(vec, bm, 60);
         if ("hybrid_rerank".equals(mode)) {
             int n = Math.min(fused.size(), Math.max(topK * 3, 10));

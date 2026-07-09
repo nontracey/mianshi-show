@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.agent.graph import AgentOrchestrator, reset_orchestrator
-from app.agent.tools import execute_tool, get_scoring_rubric, save_note, search_knowledge
+from app.agent.tools import execute_tool, save_note, search_knowledge
 from app.main import app
 
 
@@ -17,13 +17,6 @@ async def test_search_knowledge_tool_returns_docs(ingested):
     assert "docs" in res
     assert len(res["docs"]) >= 1
     assert res["docs"][0]["topic_id"]
-
-
-def test_get_scoring_rubric_tool():
-    """get_scoring_rubric 工具应返回 topic 的 rubric。"""
-    res = get_scoring_rubric("java.concurrency.volatile.recall.1")
-    assert res["topic_id"] == "java.concurrency.volatile"
-    assert "mustHave" in res["rubric"]
 
 
 def test_save_note_tool():

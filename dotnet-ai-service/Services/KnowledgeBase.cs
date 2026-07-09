@@ -19,18 +19,38 @@ public class Topic
     public JsonElement Rubric { get; set; }
 }
 
-/// <summary>知识库加载器:manifest 驱动,三层数据源降级(与 B/C 同策略)。</summary>
+/// <summary>知识库加载器:manifest 驱动,三层数据源降级(与 B/C 同策略)。
+/// 按租户隔离:_byTenant 是 Dictionary&lt;tenantId, Dictionary&lt;topicId, Topic&gt;&gt;,
+/// 每个租户独立的知识库集合(见 TenantContext)。 </summary>
 public class KnowledgeBase
 {
     private readonly AppOptions _opts;
     private readonly HttpClient _http;
-    private readonly Dictionary<string, Topic> _byId = new();
+    private readonly Dictionary<string, Dictionary<string, Topic>> _byTenant = new();
+    private readonly object _lock = new();
     public string ContentVersion { get; private set; } = "";
 
     public KnowledgeBase(AppOptions opts, HttpClient http)
     {
         _opts = opts;
         _http = http;
+    }
+
+    private Dictionary<string, Topic> CurrentTenantMap
+    {
+        get
+        {
+            lock (_lock)
+            {
+                var tenant = TenantContext.CurrentTenant;
+                if (!_byTenant.TryGetValue(tenant, out var map))
+                {
+                    map = new();
+                    _byTenant[tenant] = map;
+                }
+                return map;
+            }
+        }
     }
 
     public async Task<int> LoadAsync(string? sourceOverride)
@@ -54,13 +74,17 @@ public class KnowledgeBase
             topics = LoadFromSample();
         }
 
-        _byId.Clear();
+        var map = CurrentTenantMap;
+        lock (_lock)
+        {
+            map.Clear();
+        }
         int prod = 0;
         foreach (var t in topics)
         {
             if (t.Status == "production")
             {
-                _byId[t.Id] = t;
+                map[t.Id] = t;
                 prod++;
             }
         }
@@ -182,7 +206,28 @@ public class KnowledgeBase
         return Path.GetFullPath(p);
     }
 
-    public Topic? Get(string id) => _byId.TryGetValue(id, out var t) ? t : null;
-    public List<Topic> List() => _byId.Values.ToList();
-    public int Count => _byId.Count;
+    public Topic? Get(string id)
+    {
+        var map = CurrentTenantMap;
+        lock (_lock)
+        {
+            return map.TryGetValue(id, out var t) ? t : null;
+        }
+    }
+    public List<Topic> List()
+    {
+        var map = CurrentTenantMap;
+        lock (_lock)
+        {
+            return map.Values.ToList();
+        }
+    }
+    public int Count
+    {
+        get
+        {
+            var map = CurrentTenantMap;
+            lock (_lock) { return map.Count; }
+        }
+    }
 }

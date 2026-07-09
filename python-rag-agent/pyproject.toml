@@ -51,6 +51,9 @@ prod = [
 
 [tool.uv]
 package = false
+# 国内源优先(清华 PyPI 镜像),PyPI 主源作为备用(网络不稳时 fallback)
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+extra-index-url = ["https://pypi.org/simple"]
 
 [tool.ruff]
 line-length = 110

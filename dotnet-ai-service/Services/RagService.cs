@@ -3,8 +3,6 @@ using System.Text.Json;
 using DotnetAiService.Common;
 
 namespace DotnetAiService.Services;
-
-/// <summary>chunk + metadata。</summary>
 public class Chunk
 {
     public string Text { get; set; } = "";
@@ -26,19 +24,39 @@ public class RagService
         _kb = kb;
     }
 
-    public int ChunkCount => _store.Count;
+    public int ChunkCount
+    {
+        get
+        {
+            var tenant = TenantContext.CurrentTenant;
+            return _store.Count(e => tenant.Equals(e.chunk.Metadata.GetValueOrDefault("tenant_id")));
+        }
+    }
 
     public async Task<(int topics, int chunks)> IngestAsync()
     {
+        var tenant = TenantContext.CurrentTenant;
         var topics = _kb.List();
         var chunks = new List<Chunk>();
         foreach (var t in topics)
         {
             chunks.AddRange(SplitTopic(t));
         }
+        // 给每个 chunk 加 tenant_id metadata(按租户隔离检索)
+        foreach (var c in chunks)
+        {
+            c.Metadata["tenant_id"] = tenant;
+        }
         _allChunks = chunks;
-        _store.Clear();
-        _bm25Tokens.Clear();
+        // 清当前租户的旧数据(倒序移除保索引,_store 和 _bm25Tokens 同步)
+        for (int i = _store.Count - 1; i >= 0; i--)
+        {
+            if (tenant.Equals(_store[i].chunk.Metadata.GetValueOrDefault("tenant_id")))
+            {
+                _store.RemoveAt(i);
+                _bm25Tokens.RemoveAt(i);
+            }
+        }
         // 批量 embed
         for (int i = 0; i < chunks.Count; i += 64)
         {
@@ -143,17 +161,23 @@ public class RagService
     public async Task<List<Chunk>> RetrieveAsync(string query, int topK, string mode)
     {
         if (_store.Count == 0) return new();
+        var tenant = TenantContext.CurrentTenant;
         var qEmb = (await _llm.EmbedAsync(new List<string> { query }))[0];
         var vecK = Math.Max(topK * 2, 8);
-        var vec = _store.Select((e, i) => (e.chunk, score: Cosine(qEmb, e.emb)))
+        // 向量检索:过滤当前租户
+        var vec = _store.Where(e => tenant.Equals(e.chunk.Metadata.GetValueOrDefault("tenant_id")))
+                       .Select(e => (e.chunk, score: Cosine(qEmb, e.emb)))
                        .OrderByDescending(x => x.score).Take(vecK).ToList();
 
         if (mode == "vector") return vec.Take(topK).Select(x => x.chunk).ToList();
 
-        // BM25
+        // BM25:只算当前租户的 chunk
         var qTokens = Tokenize(query);
+        var tenantIndices = _store.Select((e, i) => (e, i))
+            .Where(x => tenant.Equals(x.e.chunk.Metadata.GetValueOrDefault("tenant_id")))
+            .Select(x => x.i).ToList();
         var bm = new List<(int idx, double score)>();
-        for (int i = 0; i < _bm25Tokens.Count; i++)
+        foreach (var i in tenantIndices)
         {
             var tf = qTokens.Sum(t => _bm25Tokens[i].Count(x => x == t));
             var s = _bm25Tokens[i].Count == 0 ? 0 : (double)tf / _bm25Tokens[i].Count;

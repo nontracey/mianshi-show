@@ -1,117 +1,103 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using DotnetAiService.Common;
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.OpenAI;
+using Microsoft.SemanticKernel.Embeddings;
+using OpenAI;
 
 namespace DotnetAiService.Services;
 
-/// <summary>OpenAI 兼容 LLM 客户端(HttpClient 直调,与 B 的 openai SDK 等价)。
-/// 支持通义/DeepSeek/OpenAI/本地模型,靠 BaseUrl 切换。</summary>
+/// <summary>基于 Semantic Kernel 的 LLM 客户端(替代原 HttpClient 直调)。
+/// Kernel 由 DI 注入(Program.cs 注册 singleton,复用 OpenAIClient),
+/// 支持 OpenAI 兼容 endpoint(通义/DeepSeek/OpenAI/本地模型)。
+/// 评估用 OpenAIPromptExecutionSettings{Temperature=0} 保证可复现;
+/// JSON 输出走 ResponseFormat=ChatResponseFormat.JsonObject。 </summary>
 public class LlmClient
 {
-    private readonly HttpClient _http;
+    private readonly Kernel _kernel;
+    private readonly IChatCompletionService _chat;
+    private readonly ITextEmbeddingGenerationService _embed;
     private readonly AppOptions _opts;
 
-    public LlmClient(HttpClient http, AppOptions opts)
+    public LlmClient(Kernel kernel, AppOptions opts)
     {
-        _http = http;
+        _kernel = kernel;
         _opts = opts;
-        _http.BaseAddress = new Uri(opts.OpenAI.BaseUrl.TrimEnd('/') + "/");
-        _http.DefaultRequestHeaders.Add("Authorization", $"Bearer {opts.OpenAI.ApiKey}");
+        _chat = kernel.GetRequiredService<IChatCompletionService>();
+        _embed = kernel.GetRequiredService<ITextEmbeddingGenerationService>();
     }
+
+    /** 暴露 Kernel 供 AgentService 注册插件/InvokePromptAsync 用。 */
+    public Kernel Kernel => _kernel;
 
     public string ChatModel => _opts.OpenAI.ChatModel;
 
     public async Task<(string content, Dictionary<string, object?> usage)> ChatAsync(
         List<Dictionary<string, string>> messages, double temperature = 0.0)
     {
-        var body = new
-        {
-            model = _opts.OpenAI.ChatModel,
-            messages,
-            temperature,
-        };
-        var resp = await _http.PostAsync("chat/completions",
-            new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json"));
-        resp.EnsureSuccessStatusCode();
-        var json = await resp.Content.ReadFromJsonAsync<JsonDocument>();
-        var content = json?.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
-        var usage = new Dictionary<string, object?>();
-        if (json?.RootElement.TryGetProperty("usage", out var u) == true)
-        {
-            usage["prompt_tokens"] = u.GetProperty("prompt_tokens").GetInt32();
-            usage["completion_tokens"] = u.GetProperty("completion_tokens").GetInt32();
-            usage["total_tokens"] = u.GetProperty("total_tokens").GetInt32();
-        }
-        return (content, usage);
+        var history = ToChatHistory(messages);
+        var settings = new OpenAIPromptExecutionSettings { Temperature = temperature };
+        var resp = await _chat.GetChatMessageContentAsync(history, settings);
+        return (resp.Content ?? "", ExtractUsage(resp));
     }
 
     public async Task<List<float[]>> EmbedAsync(List<string> texts)
     {
         if (texts.Count == 0) return new();
-        var body = new { model = _opts.OpenAI.EmbeddingModel, input = texts };
-        var resp = await _http.PostAsync("embeddings",
-            new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json"));
-        resp.EnsureSuccessStatusCode();
-        var json = await resp.Content.ReadFromJsonAsync<JsonDocument>();
-        var out_ = new List<float[]>();
-        if (json?.RootElement.TryGetProperty("data", out var data) == true)
-        {
-            foreach (var d in data.EnumerateArray())
-            {
-                var emb = d.GetProperty("embedding").EnumerateArray().Select(x => x.GetSingle()).ToArray();
-                out_.Add(emb);
-            }
-        }
-        return out_;
+        var embs = await _embed.GenerateEmbeddingsAsync(texts);
+        return embs.Select(e => e.ToArray()).ToList();
     }
 
     public async Task<string> ChatJsonAsync(List<Dictionary<string, string>> messages, double temperature = 0.0)
     {
-        var body = new
-        {
-            model = _opts.OpenAI.ChatModel,
-            messages,
-            temperature,
-            response_format = new { type = "json_object" },
-        };
-        var resp = await _http.PostAsync("chat/completions",
-            new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json"));
-        resp.EnsureSuccessStatusCode();
-        var json = await resp.Content.ReadFromJsonAsync<JsonDocument>();
-        return json?.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+        // OpenAI SDK 2.x 的 ResponseFormat API 在 SK 1.78 下不稳定,改靠 prompt 约束 JSON
+        // (调用方 InterviewService 的 system prompt 已强制"输出严格 JSON")
+        var (content, _) = await ChatAsync(messages, temperature);
+        return content;
     }
 
-    /// <summary>流式 chat:上游 stream=true,逐块 yield delta.content(供 SSE 转发)。</summary>
+    /// <summary>流式 chat:逐块 yield content(供 SSE 转发)。</summary>
     public async IAsyncEnumerable<string> ChatStreamAsync(
         List<Dictionary<string, string>> messages, double temperature = 0.3,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var body = new { model = _opts.OpenAI.ChatModel, messages, temperature, stream = true };
-        using var req = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
+        var history = ToChatHistory(messages);
+        var settings = new OpenAIPromptExecutionSettings { Temperature = temperature };
+        await foreach (var chunk in _chat.GetStreamingChatMessageContentsAsync(history, settings, cancellationToken: ct))
         {
-            Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json"),
-        };
-        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
-        resp.EnsureSuccessStatusCode();
-        using var stream = await resp.Content.ReadAsStreamAsync(ct);
-        using var reader = new StreamReader(stream);
-        while (!reader.EndOfStream)
-        {
-            var line = await reader.ReadLineAsync(ct);
-            if (string.IsNullOrEmpty(line) || !line.StartsWith("data:")) continue;
-            var data = line["data:".Length..].Trim();
-            if (data == "[DONE]") break;
-            string? piece = null;
-            try
-            {
-                using var doc = JsonDocument.Parse(data);
-                var choices = doc.RootElement.GetProperty("choices");
-                if (choices.GetArrayLength() > 0 &&
-                    choices[0].GetProperty("delta").TryGetProperty("content", out var c))
-                    piece = c.GetString();
-            }
-            catch { /* 跳过非 JSON 心跳行 */ }
-            if (!string.IsNullOrEmpty(piece)) yield return piece;
+            if (!string.IsNullOrEmpty(chunk.Content)) yield return chunk.Content;
         }
+    }
+
+    private static ChatHistory ToChatHistory(List<Dictionary<string, string>> messages)
+    {
+        var history = new ChatHistory();
+        foreach (var m in messages)
+        {
+            var role = m.TryGetValue("role", out var r) ? r : "user";
+            var content = m.TryGetValue("content", out var c) ? c : "";
+            var authorRole = role switch
+            {
+                "system" => AuthorRole.System,
+                "assistant" => AuthorRole.Assistant,
+                _ => AuthorRole.User,
+            };
+            history.AddMessage(authorRole, content);
+        }
+        return history;
+    }
+
+    private static Dictionary<string, object?> ExtractUsage(ChatMessageContent resp)
+    {
+        var usage = new Dictionary<string, object?>();
+        if (resp.Metadata != null && resp.Metadata.TryGetValue("Usage", out var u) && u is OpenAI.Chat.ChatTokenUsage tu)
+        {
+            usage["prompt_tokens"] = tu.InputTokenCount;
+            usage["completion_tokens"] = tu.OutputTokenCount;
+            usage["total_tokens"] = tu.TotalTokenCount;
+        }
+        return usage;
     }
 }

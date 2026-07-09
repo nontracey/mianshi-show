@@ -1,6 +1,7 @@
 package com.nontracey.aiservice.rag;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nontracey.aiservice.common.TenantContext;
 import com.nontracey.aiservice.config.AppProperties;
 import com.nontracey.aiservice.dto.Dtos.Topic;
 import org.slf4j.Logger;
@@ -16,7 +17,9 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** 知识库加载器:manifest 驱动,三层数据源降级(与 B 同策略)。
- * 优先级:KB_CONTENT_PATH > KB_CONTENT_URL > KB_SAMPLE_PATH。只入 status=="production"。 */
+ * 优先级:KB_CONTENT_PATH > KB_CONTENT_URL > KB_SAMPLE_PATH。只入 status=="production"。
+ * <p>按租户隔离:{@code byTenant} 是 {@code Map<tenantId, Map<topicId, Topic>>},
+ * 每个租户独立的知识库集合(见 TenantContext)。 */
 @Service
 public class Loader {
 
@@ -25,7 +28,7 @@ public class Loader {
     private final AppProperties props;
     private final WebClient webClient;
 
-    private final Map<String, Topic> byId = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, Topic>> byTenant = new ConcurrentHashMap<>();
     private String contentVersion = "";
 
     public Loader(AppProperties props, WebClient webClient) {
@@ -50,6 +53,8 @@ public class Loader {
             topics = loadFromSample();
         }
 
+        String tenant = TenantContext.get();
+        Map<String, Topic> byId = byTenant.computeIfAbsent(tenant, k -> new ConcurrentHashMap<>());
         byId.clear();
         int prod = 0;
         for (Topic t : topics) {
@@ -58,7 +63,7 @@ public class Loader {
                 prod++;
             }
         }
-        log.info("知识库加载完成:version={}, production topics={}", contentVersion, prod);
+        log.info("知识库加载完成:tenant={}, version={}, production topics={}", tenant, contentVersion, prod);
         return prod;
     }
 
@@ -169,8 +174,14 @@ public class Loader {
         return Path.of(System.getProperty("user.dir")).resolve(p).normalize().toFile();
     }
 
-    public Topic get(String id) { return byId.get(id); }
-    public List<Topic> list() { return new ArrayList<>(byId.values()); }
-    public int count() { return byId.size(); }
+    public Topic get(String id) {
+        return byTenant.getOrDefault(TenantContext.get(), Map.of()).get(id);
+    }
+    public List<Topic> list() {
+        return new ArrayList<>(byTenant.getOrDefault(TenantContext.get(), Map.of()).values());
+    }
+    public int count() {
+        return byTenant.getOrDefault(TenantContext.get(), Map.of()).size();
+    }
     public String contentVersion() { return contentVersion; }
 }

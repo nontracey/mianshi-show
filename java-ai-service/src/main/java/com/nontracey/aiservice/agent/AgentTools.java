@@ -1,6 +1,5 @@
 package com.nontracey.aiservice.agent;
 
-import com.nontracey.aiservice.dto.Dtos;
 import com.nontracey.aiservice.dto.Dtos.Topic;
 import com.nontracey.aiservice.rag.HybridRetriever;
 import com.nontracey.aiservice.rag.Loader;
@@ -11,8 +10,11 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 
-/** Agent 工具集(显式调用版;后续可替换为 Spring AI @Tool 自动 Function Calling)。
- * 与 B 的 tools.py 对应:search_knowledge / get_scoring_rubric / save_note。 */
+/** Agent 工具集(与 B 的 tools.py 对应):search_knowledge / get_scoring_rubric / save_note。
+ * <p>方法本身是普通 Java 调用(供 AgentOrchestrator 显式编排用);
+ * 同时暴露 input record,供 AgentOrchestrator 包成 Spring AI {@code FunctionCallback}
+ * (让 LLM 通过 Function Calling 调用,展示 SpringAI 工具机制)。
+ * <p>search_knowledge 内部把检索结果存 ThreadLocal,供 retrieve 节点在 LLM 调用后取回 docs。 */
 @Service
 public class AgentTools {
 
@@ -20,6 +22,9 @@ public class AgentTools {
     private final Loader loader;
     private final HybridRetriever retriever;
     private final List<String> notes = Collections.synchronizedList(new ArrayList<>());
+
+    /** ThreadLocal:LLM 调 search_knowledge 后,把 docs 存这里供编排器取回。 */
+    private static final ThreadLocal<List<ScoredDoc>> LAST_RETRIEVED = new ThreadLocal<>();
 
     public AgentTools(Loader loader, HybridRetriever retriever) {
         this.loader = loader;
@@ -29,7 +34,9 @@ public class AgentTools {
     /** search_knowledge:检索知识库。 */
     public List<ScoredDoc> searchKnowledge(String query, int topK) {
         log.info("[tool] search_knowledge: query={}, topK={}", query, topK);
-        return retriever.retrieve(query, topK, "hybrid");
+        List<ScoredDoc> docs = retriever.retrieve(query, topK, "hybrid");
+        LAST_RETRIEVED.set(docs);
+        return docs;
     }
 
     /** get_scoring_rubric:查评分标准。 */
@@ -49,4 +56,12 @@ public class AgentTools {
     }
 
     public List<String> notes() { return notes; }
+
+    public static List<ScoredDoc> lastRetrieved() { return LAST_RETRIEVED.get(); }
+    public static void clearLastRetrieved() { LAST_RETRIEVED.remove(); }
+
+    // ---------- Function Calling input records(供 FunctionCallback 包装用) ----------
+    public record SearchKnowledgeInput(String query, Integer topK) {}
+    public record GetRubricInput(String questionId) {}
+    public record SaveNoteInput(String text) {}
 }

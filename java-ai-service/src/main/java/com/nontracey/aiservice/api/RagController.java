@@ -57,7 +57,7 @@ public class RagController {
             int count = loader.load(req.source());
             var chunks = splitter.splitAll(loader.list());
             vectorStore.reset();
-            vectorStore.add(chunks);
+            vectorStore.addChunks(chunks);
             retriever.rebuildBm25(chunks);
             metrics.recordRequest(System.currentTimeMillis() - t0);
             return ApiResponse.ok(new Dtos.IngestData(count, chunks.size(), loader.contentVersion()), TraceIdFilter.current());
@@ -94,8 +94,15 @@ public class RagController {
         }
         metrics.recordCache(false);
         int topK = req.topK() != null ? req.topK() : 4;
-        var docs = retriever.retrieve(req.question(), topK, mode);
-        Dtos.AskData data = generator.generate(req.question(), docs);
+        Dtos.AskData data;
+        if ("advisor".equals(mode)) {
+            // SpringAI QuestionAnswerAdvisor 路径:Advisor 自动检索 + 注入上下文(纯向量)
+            data = generator.generateWithAdvisor(req.question(), topK);
+        } else {
+            // 混合检索路径:HybridRetriever(向量+BM25+RRF)+ 手拼 context
+            var docs = retriever.retrieve(req.question(), topK, mode);
+            data = generator.generate(req.question(), docs);
+        }
         cache.put(qEmb, data);
         metrics.recordRequest(System.currentTimeMillis() - t0);
         return ApiResponse.ok(data, TraceIdFilter.current());
