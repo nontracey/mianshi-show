@@ -9,9 +9,9 @@
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
 
-  <!-- 零外部 NuGet 依赖:ASP.NET Core 8 内置 HttpClient/JsonSerializer,够用。
-       Swagger 待补(装 Swashbuckle 后取消注释下方行):
-       <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
-  -->
+  <ItemGroup>
+    <!-- Swagger UI(/docs);其余走 ASP.NET Core 8 内置 HttpClient/JsonSerializer -->
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
 
 </Project>

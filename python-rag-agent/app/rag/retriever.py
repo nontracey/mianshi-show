@@ -211,10 +211,38 @@ async def _rerank(question: str, docs: list[ScoredDoc]) -> list[ScoredDoc]:
         ranked = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
         return [ScoredDoc(text=d.text, metadata=d.metadata, score=float(s)) for d, s in ranked]
     except ImportError:
-        logger.info("sentence-transformers 未装,跳过 rerank(按原 RRF 顺序返回)")
-        return docs
+        logger.info("sentence-transformers 未装,改用 LLM 重排")
+        return await _llm_rerank(question, docs)
     except Exception as e:
-        logger.warning("rerank 失败,降级为原顺序:%s", e)
+        logger.warning("CrossEncoder 不可用(%s),改用 LLM 重排", e)
+        return await _llm_rerank(question, docs)
+
+
+async def _llm_rerank(question: str, docs: list[ScoredDoc]) -> list[ScoredDoc]:
+    """LLM 重排:CrossEncoder 不可用时的兜底,让模型按相关度给候选排序。
+    跨语言一致(C/D 也是 LLM 重排)。失败则回退原 RRF 顺序。"""
+    if len(docs) <= 1:
+        return docs
+    import json
+
+    from app.infra.llm import get_llm
+
+    listing = "\n".join(f"[{i}] {d.text[:200]}" for i, d in enumerate(docs))
+    messages = [
+        {"role": "system", "content": '你是检索结果重排器。按候选与【问题】的相关度从高到低排序,只输出 JSON:{"order":[序号,...]}。不要解释。'},
+        {"role": "user", "content": f"问题:{question}\n候选:\n{listing}"},
+    ]
+    try:
+        content, _ = await get_llm().chat(messages, temperature=0)
+        raw = content.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        order = json.loads(raw).get("order", [])
+        reranked = [docs[i] for i in order if isinstance(i, int) and 0 <= i < len(docs)]
+        for d in docs:  # 补上模型漏掉的,保证不丢结果
+            if d not in reranked:
+                reranked.append(d)
+        return reranked
+    except Exception as e:
+        logger.warning("LLM 重排失败,回退原序:%s", e)
         return docs
 
 

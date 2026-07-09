@@ -43,6 +43,9 @@ public class VectorStoreService {
     public synchronized void reset() { store.clear(); }
     public int count() { return store.size(); }
 
+    /** 对外暴露单条 embedding(供语义缓存对问题向量化)。 */
+    public float[] embed(String text) { return embeddingModel.embed(text); }
+
     private static double cosine(float[] a, double[] b) {
         double dot = 0, na = 0, nb = 0;
         for (int i = 0; i < a.length; i++) {

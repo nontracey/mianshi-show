@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using DotnetAiService.Common;
 
@@ -78,5 +79,39 @@ public class LlmClient
         resp.EnsureSuccessStatusCode();
         var json = await resp.Content.ReadFromJsonAsync<JsonDocument>();
         return json?.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+    }
+
+    /// <summary>流式 chat:上游 stream=true,逐块 yield delta.content(供 SSE 转发)。</summary>
+    public async IAsyncEnumerable<string> ChatStreamAsync(
+        List<Dictionary<string, string>> messages, double temperature = 0.3,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var body = new { model = _opts.OpenAI.ChatModel, messages, temperature, stream = true };
+        using var req = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json"),
+        };
+        using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        resp.EnsureSuccessStatusCode();
+        using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream);
+        while (!reader.EndOfStream)
+        {
+            var line = await reader.ReadLineAsync(ct);
+            if (string.IsNullOrEmpty(line) || !line.StartsWith("data:")) continue;
+            var data = line["data:".Length..].Trim();
+            if (data == "[DONE]") break;
+            string? piece = null;
+            try
+            {
+                using var doc = JsonDocument.Parse(data);
+                var choices = doc.RootElement.GetProperty("choices");
+                if (choices.GetArrayLength() > 0 &&
+                    choices[0].GetProperty("delta").TryGetProperty("content", out var c))
+                    piece = c.GetString();
+            }
+            catch { /* 跳过非 JSON 心跳行 */ }
+            if (!string.IsNullOrEmpty(piece)) yield return piece;
+        }
     }
 }

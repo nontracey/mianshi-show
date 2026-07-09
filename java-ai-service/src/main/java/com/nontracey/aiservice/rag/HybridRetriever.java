@@ -1,21 +1,27 @@
 package com.nontracey.aiservice.rag;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nontracey.aiservice.rag.Splitter.Chunk;
 import com.nontracey.aiservice.rag.VectorStoreService.ScoredDoc;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 
-/** 混合检索:向量 + BM25(纯 Java TF-IDF 式)+ RRF 融合。
- * 与 B 同策略;rerank 暂未接入(留 TODO,可接 bge-reranker HTTP)。 */
+/** 混合检索:向量 + BM25(纯 Java TF-IDF 式)+ RRF 融合 + 可选 LLM 重排。
+ * 与 B/D 同策略;hybrid_rerank 用 LLM 对融合结果重排(跨语言一致,无需部署 cross-encoder)。 */
 @Service
 public class HybridRetriever {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     private final VectorStoreService vectorStore;
+    private final ChatClient chatClient;
     private final Bm25Index bm25 = new Bm25Index();
 
-    public HybridRetriever(VectorStoreService vectorStore) {
+    public HybridRetriever(VectorStoreService vectorStore, ChatClient chatClient) {
         this.vectorStore = vectorStore;
+        this.chatClient = chatClient;
     }
 
     public void rebuildBm25(List<Chunk> chunks) {
@@ -32,7 +38,38 @@ public class HybridRetriever {
 
         List<Bm25Index.Hit> bm = bm25.query(query, vecK);
         List<ScoredDoc> fused = rrfFuse(vec, bm, 60);
+        if ("hybrid_rerank".equals(mode)) {
+            int n = Math.min(fused.size(), Math.max(topK * 3, 10));
+            return llmRerank(query, fused.subList(0, n), topK);
+        }
         return fused.subList(0, Math.min(topK, fused.size()));
+    }
+
+    /** LLM 重排:按与问题相关度重排融合结果;失败回退原 RRF 顺序。 */
+    private List<ScoredDoc> llmRerank(String query, List<ScoredDoc> cands, int topK) {
+        if (cands.size() <= 1) return cands.subList(0, Math.min(topK, cands.size()));
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < cands.size(); i++) {
+            String t = cands.get(i).chunk().text();
+            sb.append("[").append(i).append("] ").append(t.length() > 200 ? t.substring(0, 200) : t).append("\n");
+        }
+        try {
+            String raw = chatClient.prompt()
+                    .system("你是检索结果重排器。按候选与【问题】的相关度从高到低排序,只输出 JSON:{\"order\":[序号,...]}。不要解释。")
+                    .user("问题:" + query + "\n候选:\n" + sb)
+                    .call().content();
+            if (raw == null) return cands.subList(0, Math.min(topK, cands.size()));
+            raw = raw.trim().replaceAll("(?s)^```json|^```|```$", "").trim();
+            var node = MAPPER.readTree(raw).get("order");
+            List<ScoredDoc> reranked = new ArrayList<>();
+            if (node != null && node.isArray()) {
+                for (var n : node) { int i = n.asInt(-1); if (i >= 0 && i < cands.size()) reranked.add(cands.get(i)); }
+            }
+            for (ScoredDoc d : cands) if (!reranked.contains(d)) reranked.add(d);
+            return reranked.subList(0, Math.min(topK, reranked.size()));
+        } catch (Exception e) {
+            return cands.subList(0, Math.min(topK, cands.size()));
+        }
     }
 
     /** RRF 融合:score = Σ 1/(k + rank)。 */
@@ -56,7 +93,7 @@ public class HybridRetriever {
     }
 
     private String key(Chunk c) {
-        return c.text().length() > 64 ? c.text().substring(0, 64) : c.text();
+        return c.text();  // 用全文去重,避免前 N 字相同的 chunk 被误并
     }
 
     /** 纯 Java BM25(简化为 TF-IDF 式)。 */

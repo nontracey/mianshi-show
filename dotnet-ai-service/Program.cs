@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using DotnetAiService.Common;
@@ -16,13 +17,16 @@ builder.Services.AddSingleton<KnowledgeBase>();
 builder.Services.AddSingleton<RagService>();
 builder.Services.AddSingleton<InterviewService>();
 builder.Services.AddSingleton<AgentService>();
-// Swagger 待补:装 Swashbuckle 后启用 AddEndpointsApiExplorer + AddSwaggerGen
+builder.Services.AddSingleton<Metrics>();
+builder.Services.AddSingleton<SemanticCache>();
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
 app.UseMiddleware<TraceIdMiddleware>();
-// Swagger 待补:app.UseSwagger(); app.UseSwaggerUI();
+app.UseSwagger();
+app.UseSwaggerUI(o => o.RoutePrefix = "docs");  // /docs 看接口(与 C 对齐)
 
 // ---------- /health ----------
 app.MapGet("/health", (KnowledgeBase kb, AppOptions opts) =>
@@ -43,12 +47,14 @@ app.MapGet("/health", (KnowledgeBase kb, AppOptions opts) =>
 });
 
 // ---------- /api/ingest ----------
-app.MapPost("/api/ingest", async (RagService rag, KnowledgeBase kb, HttpRequest req) =>
+app.MapPost("/api/ingest", async (RagService rag, KnowledgeBase kb, Metrics metrics) =>
 {
+    var t0 = Stopwatch.GetTimestamp();
     try
     {
         await kb.LoadAsync(null);
         var (topics, chunks) = await rag.IngestAsync();
+        metrics.RecordRequest((long)Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
         return Results.Json(ApiResponse<object>.Ok(new
         {
             count = topics, chunks, content_version = kb.ContentVersion,
@@ -56,25 +62,88 @@ app.MapPost("/api/ingest", async (RagService rag, KnowledgeBase kb, HttpRequest 
     }
     catch (Exception e)
     {
+        metrics.RecordRequest((long)Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
         return Results.Json(ApiResponse<object>.Err(500, "入库失败:" + e.Message, TraceIdMiddleware.CurrentTraceId), JsonOptions.Default);
     }
 });
 
 // ---------- /api/ask ----------
-app.MapPost("/api/ask", async (RagService rag, AskReq req) =>
+// 护栏 → 语义缓存 → 检索(mode: vector|hybrid|hybrid_rerank) → 生成(stream=SSE) → 指标
+app.MapPost("/api/ask", async (HttpContext ctx, RagService rag, LlmClient llm, SemanticCache cache, Metrics metrics, AskReq req, string? mode) =>
 {
+    var t0 = Stopwatch.GetTimestamp();
+    long Ms() => (long)Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+
+    var (blocked, reason) = Guardrails.DetectInjection(req.question);
+    if (blocked)
+    {
+        metrics.RecordRequest(Ms());
+        return Results.Json(ApiResponse<object>.Err(400, "输入被拒:" + reason, TraceIdMiddleware.CurrentTraceId), JsonOptions.Default);
+    }
     if (rag.ChunkCount == 0)
+    {
+        metrics.RecordRequest(Ms());
         return Results.Json(ApiResponse<object>.Err(400, "向量库为空,请先 POST /api/ingest", TraceIdMiddleware.CurrentTraceId), JsonOptions.Default);
+    }
+
+    var m = string.IsNullOrEmpty(mode) ? "hybrid" : mode;
+
+    float[] qEmb;
+    try { qEmb = (await llm.EmbedAsync(new List<string> { req.question }))[0]; }
+    catch (Exception e)
+    {
+        metrics.RecordRequest(Ms());
+        return Results.Json(ApiResponse<object>.Err(503, "Embedding 调用失败:" + e.Message, TraceIdMiddleware.CurrentTraceId), JsonOptions.Default);
+    }
+
+    // 语义缓存(非流式才走缓存)
+    if (!req.stream && cache.Get(qEmb) is { } hit)
+    {
+        metrics.RecordCache(true);
+        metrics.RecordRequest(Ms());
+        return Results.Json(ApiResponse<object>.Ok(hit, TraceIdMiddleware.CurrentTraceId), JsonOptions.Default);
+    }
+    metrics.RecordCache(false);
+
+    var docs = await rag.RetrieveAsync(req.question, req.top_k ?? 4, m);
+
+    if (req.stream)
+    {
+        // SSE:先发检索来源事件,再逐 token 发 answer,最后 done
+        ctx.Response.Headers.ContentType = "text/event-stream";
+        var sources = RagService.GetSources(docs);
+        await ctx.Response.WriteAsync($"event: retrieve\ndata: {JsonSerializer.Serialize(new { mode = m, sources }, JsonOptions.Default)}\n\n");
+        await ctx.Response.Body.FlushAsync();
+        try
+        {
+            await foreach (var tok in rag.GenerateStreamAsync(req.question, docs, ctx.RequestAborted))
+            {
+                await ctx.Response.WriteAsync($"data: {JsonSerializer.Serialize(tok)}\n\n");
+                await ctx.Response.Body.FlushAsync();
+            }
+            await ctx.Response.WriteAsync("event: done\ndata: [DONE]\n\n");
+        }
+        catch (Exception e)
+        {
+            await ctx.Response.WriteAsync($"event: error\ndata: {JsonSerializer.Serialize(e.Message)}\n\n");
+        }
+        metrics.RecordLlm(0);
+        metrics.RecordRequest(Ms());
+        return Results.Empty;
+    }
+
     try
     {
-        var (answer, sources) = await rag.AskAsync(req.question, req.top_k ?? 4, "hybrid");
-        return Results.Json(ApiResponse<object>.Ok(new
-        {
-            answer, sources, usage = new { },
-        }, TraceIdMiddleware.CurrentTraceId), JsonOptions.Default);
+        var (answer, sources, tokens) = await rag.GenerateAsync(req.question, docs);
+        var payload = new { answer, sources, usage = new { total_tokens = tokens } };
+        cache.Put(qEmb, payload);
+        metrics.RecordLlm(tokens);
+        metrics.RecordRequest(Ms());
+        return Results.Json(ApiResponse<object>.Ok(payload, TraceIdMiddleware.CurrentTraceId), JsonOptions.Default);
     }
     catch (Exception e)
     {
+        metrics.RecordRequest(Ms());
         return Results.Json(ApiResponse<object>.Err(503, "LLM 调用失败:" + e.Message, TraceIdMiddleware.CurrentTraceId), JsonOptions.Default);
     }
 });
@@ -112,17 +181,13 @@ app.MapPost("/api/interview/evaluate", async (InterviewService svc, EvaluateReq 
 });
 
 // ---------- /api/metrics ----------
-app.MapGet("/api/metrics", () =>
-    Results.Json(ApiResponse<object>.Ok(new
-    {
-        requests_total = 0, tokens_total = 0, cache_hits = 0, cache_misses = 0,
-        cache_hit_rate = 0.0, avg_latency_ms = 0.0, llm_calls = 0,
-    }, TraceIdMiddleware.CurrentTraceId), JsonOptions.Default));
+app.MapGet("/api/metrics", (Metrics metrics) =>
+    Results.Json(ApiResponse<object>.Ok(metrics.Snapshot(), TraceIdMiddleware.CurrentTraceId), JsonOptions.Default));
 
 // ---------- /api/agent/session ----------
-app.MapPost("/api/agent/session", async (AgentService agent, AgentSessionReq req) =>
+app.MapPost("/api/agent/session", async (AgentService agent, RagService rag, AgentSessionReq req) =>
 {
-    if (((RagService)app.Services.GetRequiredService(typeof(RagService))).ChunkCount == 0)
+    if (rag.ChunkCount == 0)
         return Results.Json(ApiResponse<object>.Err(400, "向量库为空,请先 POST /api/ingest", TraceIdMiddleware.CurrentTraceId), JsonOptions.Default);
     try
     {

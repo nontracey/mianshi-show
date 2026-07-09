@@ -139,7 +139,32 @@ def compute_retrieval_metrics(
     }
 
 
-async def run_one_mode(mode: str, evals: list[dict], limit: int | None, dry_run: bool = False) -> dict:
+async def compute_generation_metrics(question: str, answer: str, contexts: list[str]) -> dict:
+    """RAGAS 风格的生成质量指标(LLM-as-judge 打分,0~1):
+    - faithfulness:答案是否被检索到的上下文支持(防幻觉)
+    - answer_relevancy:答案是否切题回答了问题
+    """
+    import json
+
+    from app.infra.llm import get_llm
+
+    ctx = "\n".join(contexts)[:3000]
+    prompt = (
+        '评估下面的"答案"。只输出 JSON:{"faithfulness":0到1的小数,"answer_relevancy":0到1的小数}\n'
+        "- faithfulness:答案内容是否都能在【上下文】找到支持(1=完全有据,0=大量编造)\n"
+        "- answer_relevancy:答案是否直接切题回答了【问题】(1=完全切题,0=答非所问)\n"
+        f"【问题】{question}\n【上下文】{ctx}\n【答案】{answer}"
+    )
+    content, _ = await get_llm().chat([{"role": "user", "content": prompt}], temperature=0)
+    raw = content.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    d = json.loads(raw)
+    return {
+        "faithfulness": max(0.0, min(1.0, float(d.get("faithfulness", 0)))),
+        "answer_relevancy": max(0.0, min(1.0, float(d.get("answer_relevancy", 0)))),
+    }
+
+
+async def run_one_mode(mode: str, evals: list[dict], limit: int | None, dry_run: bool = False, with_ragas: bool = False) -> dict:
     """跑指定 mode 的评测,返回聚合指标。"""
     s = get_settings()
     llm: LLMClient | None = None
@@ -191,6 +216,19 @@ async def run_one_mode(mode: str, evals: list[dict], limit: int | None, dry_run:
         m = compute_retrieval_metrics(retrieval, ev["relevant_ids"], ev["ground_truth"])
         m["latency_ms"] = round(latency, 2)
         m["question"] = ev["question"][:50]
+
+        # RAGAS 生成质量指标:需生成答案再打分(LLM),仅 --with-ragas 时算
+        if with_ragas and not dry_run:
+            try:
+                data = await generate(ev["question"], retrieval)
+                gm = await compute_generation_metrics(
+                    ev["question"], data.answer, [d.text for d in retrieval.docs]
+                )
+                m["faithfulness"] = gm["faithfulness"]
+                m["answer_relevancy"] = gm["answer_relevancy"]
+            except Exception as e:
+                logger.warning("生成质量指标计算失败:%s", e)
+
         results.append(m)
 
     n = len(results)
@@ -203,6 +241,11 @@ async def run_one_mode(mode: str, evals: list[dict], limit: int | None, dry_run:
         "avg_latency_ms": round(sum(latencies) / n, 2) if n else 0,
         "details": results,
     }
+    fvals = [r["faithfulness"] for r in results if "faithfulness" in r]
+    if fvals:
+        avals = [r["answer_relevancy"] for r in results if "answer_relevancy" in r]
+        agg["faithfulness"] = round(sum(fvals) / len(fvals), 4)
+        agg["answer_relevancy"] = round(sum(avals) / len(avals), 4) if avals else 0
     return agg
 
 
@@ -247,10 +290,20 @@ def write_report(metrics: dict, with_ragas: bool) -> None:
     lines.append("- **context_coverage**:ground_truth 关键词在检索 context 的命中比例(召回质量粗略)")
     lines.append("- **avg_latency_ms**:平均检索延迟")
     lines.append("")
-    if not with_ragas:
-        lines.append("## 生成质量指标(RAGAS)")
-        lines.append("> 未计算(需 `--with-ragas` 且装 ragas + 配 OPENAI_API_KEY)。")
-        lines.append("> 检索质量指标无需 LLM,已客观计算。")
+    lines.append("## 生成质量指标(RAGAS 风格,LLM-as-judge 打分 0~1)")
+    has_gen = any("faithfulness" in mm for mm in metrics.get("modes", {}).values())
+    if has_gen:
+        lines.append("")
+        lines.append("| 模式 | faithfulness(忠实度/防幻觉) | answer_relevancy(切题度) |")
+        lines.append("|------|------------------------------|---------------------------|")
+        for mode in MODES:
+            mm = metrics.get("modes", {}).get(mode)
+            if mm and "faithfulness" in mm:
+                lines.append(f"| {mode} | {mm['faithfulness']} | {mm['answer_relevancy']} |")
+        lines.append("")
+        lines.append("> faithfulness=答案是否被检索上下文支持;answer_relevancy=是否切题。均由 LLM 评分。")
+    else:
+        lines.append("> 未计算(加 `--with-ragas` 且配可用 LLM 后生成)。检索质量指标无需 LLM,已客观计算。")
     REPORT_MD.write_text("\n".join(lines), encoding="utf-8")
     logger.info("报告已写入 %s", REPORT_MD)
 
@@ -270,7 +323,7 @@ async def main_async(args: argparse.Namespace) -> None:
         if mode == modes[0]:
             reset_vector_store()
             reset_bm25_index()
-        m = await run_one_mode(mode, evals, args.limit, dry_run=args.dry_run)
+        m = await run_one_mode(mode, evals, args.limit, dry_run=args.dry_run, with_ragas=args.with_ragas)
         metrics["modes"][mode] = m
 
     if args.dry_run:

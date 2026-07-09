@@ -140,8 +140,10 @@ class ChromaVectorStore(VectorStore):
         return out
 
     def count(self) -> int:
-        if self._collection is None:
-            return 0
+        # 必须先 _ensure:否则进程重启后 collection 尚未懒加载,会误报 0
+        # (持久化数据其实在磁盘上),导致重复 ingest / 健康检查误判。
+        self._ensure()
+        assert self._collection is not None
         return self._collection.count()
 
     async def reset(self) -> None:
@@ -151,11 +153,60 @@ class ChromaVectorStore(VectorStore):
             self._ensure()
 
 
+class PgVectorStore(VectorStore):
+    """pgvector(Postgres)持久化向量库。VECTOR_STORE=pgvector + PGVECTOR_URL 时启用。
+
+    需要一个装了 pgvector 扩展的 Postgres(`PGVECTOR_URL` 配置连接串)。
+    已连真实 Postgres 17 + pgvector 0.8.0 验证:add / `<=>` cosine 检索 / count / 跨进程持久化。
+    连不上时由 get_vector_store 自动降级到 memory,保证 clone 后仍可跑。
+    依赖:psycopg[binary] + pgvector(`uv sync --extra prod`)。
+    """
+
+    def __init__(self, dsn: str, dim: int = 512, table: str = "rag_chunks") -> None:
+        import psycopg
+        from pgvector.psycopg import register_vector
+
+        self._table = table
+        self._conn = psycopg.connect(dsn, autocommit=True)
+        self._conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        register_vector(self._conn)
+        self._conn.execute(
+            f"CREATE TABLE IF NOT EXISTS {table} "
+            f"(id bigserial PRIMARY KEY, text text, metadata jsonb, embedding vector({dim}))"
+        )
+
+    async def add(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
+        import json
+
+        with self._conn.cursor() as cur:
+            for c, e in zip(chunks, embeddings):
+                cur.execute(
+                    f"INSERT INTO {self._table}(text, metadata, embedding) VALUES (%s, %s, %s)",
+                    (c.text, json.dumps(c.metadata), e),
+                )
+
+    async def query(self, embedding: list[float], top_k: int = 4) -> list[ScoredDoc]:
+        # pgvector `<=>` 是 cosine 距离;相似度 = 1 - 距离
+        rows = self._conn.execute(
+            f"SELECT text, metadata, 1 - (embedding <=> %s::vector) AS score "
+            f"FROM {self._table} ORDER BY embedding <=> %s::vector LIMIT %s",
+            (embedding, embedding, top_k),
+        ).fetchall()
+        return [ScoredDoc(text=r[0], metadata=r[1], score=float(r[2])) for r in rows]
+
+    def count(self) -> int:
+        return self._conn.execute(f"SELECT count(*) FROM {self._table}").fetchone()[0]
+
+    async def reset(self) -> None:
+        self._conn.execute(f"TRUNCATE {self._table}")
+
+
 _store: VectorStore | None = None
 
 
 def get_vector_store() -> VectorStore:
-    """单例向量库。按 VECTOR_STORE 切换:memory(默认)/ chroma / pgvector。"""
+    """单例向量库。按 VECTOR_STORE 切换:memory(默认)/ chroma / pgvector。
+    任一后端不可用(缺依赖/连不上 DB)时降级到 memory,保证服务可启动。"""
     global _store
     if _store is not None:
         return _store
@@ -164,11 +215,17 @@ def get_vector_store() -> VectorStore:
     vs = s.vector_store.lower()
     if vs == "chroma":
         _store = ChromaVectorStore(persist_path=s.chroma_path)
-    elif vs in ("memory", "inmemory", "in-memory"):
-        _store = InMemoryVectorStore()
+    elif vs == "pgvector":
+        if not s.pgvector_url:
+            logger.warning("VECTOR_STORE=pgvector 但未配 PGVECTOR_URL,降级到 memory")
+            _store = InMemoryVectorStore()
+        else:
+            try:
+                _store = PgVectorStore(dsn=s.pgvector_url)
+            except Exception as e:
+                logger.warning("pgvector 初始化失败(%s),降级到 memory", e)
+                _store = InMemoryVectorStore()
     else:
-        # pgvector 等待实现;暂降级到 memory
-        logger.warning("VECTOR_STORE=%s 暂未实现,降级到 memory", vs)
         _store = InMemoryVectorStore()
     return _store
 

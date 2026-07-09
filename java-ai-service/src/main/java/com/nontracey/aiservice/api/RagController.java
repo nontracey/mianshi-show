@@ -5,6 +5,7 @@ import com.nontracey.aiservice.common.TraceIdFilter;
 import com.nontracey.aiservice.dto.Dtos;
 import com.nontracey.aiservice.infra.Guardrails;
 import com.nontracey.aiservice.infra.Metrics;
+import com.nontracey.aiservice.infra.SemanticCache;
 import com.nontracey.aiservice.rag.Generator;
 import com.nontracey.aiservice.rag.HybridRetriever;
 import com.nontracey.aiservice.rag.Loader;
@@ -34,9 +35,11 @@ public class RagController {
     private final Generator generator;
     private final Guardrails guardrails;
     private final Metrics metrics;
+    private final SemanticCache cache;
 
     public RagController(Loader loader, Splitter splitter, VectorStoreService vectorStore,
-                         HybridRetriever retriever, Generator generator, Guardrails guardrails, Metrics metrics) {
+                         HybridRetriever retriever, Generator generator, Guardrails guardrails,
+                         Metrics metrics, SemanticCache cache) {
         this.loader = loader;
         this.splitter = splitter;
         this.vectorStore = vectorStore;
@@ -44,6 +47,7 @@ public class RagController {
         this.generator = generator;
         this.guardrails = guardrails;
         this.metrics = metrics;
+        this.cache = cache;
     }
 
     @PostMapping("/ingest")
@@ -79,9 +83,20 @@ public class RagController {
             metrics.recordRequest(System.currentTimeMillis() - t0);
             return ApiResponse.err(400, "向量库为空,请先 POST /api/ingest", TraceIdFilter.current());
         }
+        // 语义缓存:question 向量化 -> 命中相似历史问则直接返回,省一次 LLM 调用
+        float[] qEmb = vectorStore.embed(req.question());
+        Dtos.AskData cached = cache.get(qEmb);
+        if (cached != null) {
+            metrics.recordCache(true);
+            metrics.recordRequest(System.currentTimeMillis() - t0);
+            var hit = new Dtos.AskData(cached.answer(), cached.sources(), java.util.Map.of("cache_hit", true));
+            return ApiResponse.ok(hit, TraceIdFilter.current());
+        }
+        metrics.recordCache(false);
         int topK = req.topK() != null ? req.topK() : 4;
         var docs = retriever.retrieve(req.question(), topK, mode);
         Dtos.AskData data = generator.generate(req.question(), docs);
+        cache.put(qEmb, data);
         metrics.recordRequest(System.currentTimeMillis() - t0);
         return ApiResponse.ok(data, TraceIdFilter.current());
     }

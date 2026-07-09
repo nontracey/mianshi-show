@@ -115,6 +115,13 @@ public class RagService
     public async Task<(string answer, List<Dictionary<string, object>> sources)> AskAsync(string question, int topK = 4, string mode = "hybrid")
     {
         var docs = await RetrieveAsync(question, topK, mode);
+        var (answer, sources, _) = await GenerateAsync(question, docs);
+        return (answer, sources);
+    }
+
+    /// <summary>基于已检索的 docs 生成答案(防幻觉 Prompt)。返回答案/来源/token 数。</summary>
+    public async Task<(string answer, List<Dictionary<string, object>> sources, int tokens)> GenerateAsync(string question, List<Chunk> docs)
+    {
         var context = BuildContext(docs);
         var system = $"""
             你是严谨的技术面试知识助手。只依据【上下文】回答,标注来源条目 id。
@@ -128,9 +135,9 @@ public class RagService
             new() { ["role"] = "system", ["content"] = system },
             new() { ["role"] = "user", ["content"] = question },
         };
-        var (answer, _) = await _llm.ChatAsync(messages, 0.3);
-        var sources = ExtractSources(docs);
-        return (answer, sources);
+        var (answer, usage) = await _llm.ChatAsync(messages, 0.3);
+        var tokens = usage.TryGetValue("total_tokens", out var tk) && tk is int i ? i : 0;
+        return (answer, ExtractSources(docs), tokens);
     }
 
     public async Task<List<Chunk>> RetrieveAsync(string query, int topK, string mode)
@@ -170,8 +177,65 @@ public class RagService
             scores[key] = scores.GetValueOrDefault(key) + 1.0 / (60 + i + 1);
             docsByKey.TryAdd(key, chunk);
         }
-        return scores.OrderByDescending(x => x.Value).Take(topK).Select(x => docsByKey[x.Key]).ToList();
+        var fused = scores.OrderByDescending(x => x.Value).Select(x => docsByKey[x.Key]).ToList();
+        if (mode == "hybrid_rerank")
+            return await LlmRerankAsync(query, fused.Take(Math.Max(topK * 3, 10)).ToList(), topK);
+        return fused.Take(topK).ToList();
     }
+
+    /// <summary>LLM 重排:让模型按与问题的相关度给候选排序(跨语言一致的 rerank 实现,
+    /// 无需部署 cross-encoder 模型;失败则回退原 RRF 顺序)。</summary>
+    private async Task<List<Chunk>> LlmRerankAsync(string query, List<Chunk> candidates, int topK)
+    {
+        if (candidates.Count <= 1) return candidates.Take(topK).ToList();
+        var sb = new StringBuilder();
+        for (int i = 0; i < candidates.Count; i++)
+            sb.AppendLine($"[{i}] {(candidates[i].Text.Length > 200 ? candidates[i].Text[..200] : candidates[i].Text)}");
+        var messages = new List<Dictionary<string, string>>
+        {
+            new() { ["role"] = "system", ["content"] = "你是检索结果重排器。按候选与【问题】的相关度从高到低排序,只输出 JSON:{\"order\":[片段序号,...]}。不要解释。" },
+            new() { ["role"] = "user", ["content"] = $"问题:{query}\n候选:\n{sb}" },
+        };
+        try
+        {
+            var raw = await _llm.ChatJsonAsync(messages, 0.0);
+            using var doc = JsonDocument.Parse(raw);
+            var order = doc.RootElement.GetProperty("order").EnumerateArray().Select(x => x.GetInt32()).ToList();
+            var reranked = order.Where(i => i >= 0 && i < candidates.Count).Select(i => candidates[i]).ToList();
+            // 补上模型漏掉的候选,保证不丢结果
+            foreach (var c in candidates) if (!reranked.Contains(c)) reranked.Add(c);
+            return reranked.Take(topK).ToList();
+        }
+        catch
+        {
+            return candidates.Take(topK).ToList();
+        }
+    }
+
+    /// <summary>流式生成(供 SSE):检索结果拼上下文 → 逐 token yield。</summary>
+    public async System.Collections.Generic.IAsyncEnumerable<string> GenerateStreamAsync(
+        string question, List<Chunk> docs,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken ct = default)
+    {
+        var context = BuildContext(docs);
+        var system = $"""
+            你是严谨的技术面试知识助手。只依据【上下文】回答,标注来源条目 id。
+            上下文没有的内容,直接说"知识库中没有相关内容",不要编造。
+
+            【上下文】
+            {context}
+            """;
+        var messages = new List<Dictionary<string, string>>
+        {
+            new() { ["role"] = "system", ["content"] = system },
+            new() { ["role"] = "user", ["content"] = question },
+        };
+        await foreach (var tok in _llm.ChatStreamAsync(messages, 0.3, ct))
+            yield return tok;
+    }
+
+    /// <summary>供 SSE 端点先发来源事件用。</summary>
+    public static List<Dictionary<string, object>> GetSources(List<Chunk> docs) => ExtractSources(docs);
 
     private static string BuildContext(List<Chunk> docs)
     {
@@ -214,7 +278,7 @@ public class RagService
         return (na == 0 || nb == 0) ? 0 : dot / (Math.Sqrt(na) * Math.Sqrt(nb));
     }
 
-    private static string Key(Chunk c) => c.Text.Length > 64 ? c.Text[..64] : c.Text;
+    private static string Key(Chunk c) => c.Text;  // 用全文去重,避免前 N 字相同的 chunk 被误并
 
     private static List<string> Tokenize(string text)
     {

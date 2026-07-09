@@ -104,5 +104,24 @@ cd dotnet-ai-service && dotnet run                 # http://localhost:5080/healt
 
 ## 7. 状态与诚实边界
 
-- **B**：全链路 + 评测 + 单测完成，评测数字真实可复现。
-- **C / D**：构建通过、服务启动、`/health` 与完整 RAG（ingest→检索→生成→引用来源）**端到端跑通**；rerank 为可选增强，暂以向量+BM25+RRF 为主。
+三个实现的能力矩阵(均已端到端真跑验证):
+
+| 能力 | B(Python) | C(Java) | D(.NET) |
+|------|:--:|:--:|:--:|
+| RAG(混合检索 向量+BM25+RRF) | ✅ | ✅ | ✅ |
+| LLM 重排(hybrid_rerank) | ✅ | ✅ | ✅ |
+| LLM-judge 评估 / 出题 | ✅ | ✅ | ✅ |
+| Agent 编排 | ✅ | ✅ | ✅ |
+| SSE 流式 | ✅ | ✅ | ✅ |
+| 语义缓存 | ✅ | ✅ | ✅ |
+| 输入护栏(注入检测/PII) | ✅ | ✅ | ✅ |
+| 可观测(traceId/token/命中率/延迟) | ✅ | ✅ | ✅ |
+| 检索评测(hit_rate/MRR + 生成质量) | ✅ | — | — |
+| 接口文档 | /docs | /docs | /docs |
+
+- **向量库(三档均已真跑验证)**:
+  - **memory**(默认,零依赖):dev/demo,评测与端到端都用它。
+  - **Chroma**(`VECTOR_STORE=chroma`,`--extra rag`):本地文件持久化,已验证跨进程持久化(重启数据不丢)。
+  - **pgvector**(`VECTOR_STORE=pgvector` + `PGVECTOR_URL`):生产级,已连真实 Postgres 17 + pgvector 0.8.0 验证 add / `<=>` cosine 检索 / count / 跨进程持久化。
+  - 任一后端连不上时自动降级到内存,不影响启动;连接串走环境变量,**不入库**。
+- 检索评测(两评测集 + RAGAS 风格生成质量指标)目前在 B 侧;C/D 复用同一评测结论。

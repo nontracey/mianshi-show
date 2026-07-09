@@ -15,9 +15,8 @@ secrets/
 **/appsettings.Local.json
 **/application-local.yml
 **/application-local.yaml
-# 可能含内网私有源（如公司 NuGet 仓库地址），不入库
-nuget.config
-NuGet.config
+# 注:仓库内的 dotnet-ai-service/nuget.config 是清过源的公共镜像配置，可安全入库。
+# 若某处 nuget.config 含内网私有源，务必勿提交。
 
 # ---------- 内部文档：不对外展示 ----------
 # "如何生成"的内部实现方案，面向自己/实现方 AI，非展示内容
