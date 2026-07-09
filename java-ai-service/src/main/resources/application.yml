@@ -27,7 +27,7 @@ spring:
     # pgvector 生产向量库(app.vector-store=pgvector 时启用,需配 PG 连接)
     vectorstore:
       pgvector:
-        dimensions: ${PGVECTOR_DIMENSIONS:1536}
+        dimensions: ${PGVECTOR_DIMENSIONS:512}  # 对齐本地 bge-small-zh-v1.5(512维);用 OpenAI embedding-3-small 时设 1536
         index-type: HNSW
         distance-type: COSINE_DISTANCE
         initialize-schema: true
