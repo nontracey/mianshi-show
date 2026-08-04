@@ -1,4 +1,11 @@
-"""检索器单测:向量 / 混合(RRF)/ rerank 三档。用 FakeLLM 提供确定性 embedding。"""
+"""检索器单测:向量 / 混合(RRF)/ rerank 三档。用 FakeLLM 提供确定性 embedding。
+
+测什么:检索链路各层——vector 模式单路召回、hybrid 模式
+(向量+BM25 经 RRF 融合后排序正确)、_rrf_fuse 融合规则本身
+(双路命中得分更高)、BM25 关键词召回。
+怎么测:FakeLLM 的 embed 是 md5 派生的确定性向量,同文本恒同
+向量,保证"volatile 相关 chunk 排第一"这类断言稳定可复现。
+"""
 
 from __future__ import annotations
 

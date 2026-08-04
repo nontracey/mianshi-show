@@ -5,6 +5,12 @@ agent 在 retrieve 节点把工具列表传给 LLM,LLM 决定调哪个(真实 Fu
 
 工具清单:search_knowledge / save_note。
 (get_scoring_rubric 已移除:rubric 直接从 KB 读更稳,让 LLM 多绕一圈调工具反增不确定性。)
+
+结构:
+  - 执行函数(search_knowledge / save_note):真实逻辑;
+  - TOOL_SCHEMAS:OpenAI function calling 的工具描述(传给 LLM 的 tools 参数);
+  - TOOL_REGISTRY:工具名 -> 执行函数的注册表;
+  - execute_tool():按名分发执行,自动区分同步/异步工具,异常兜底返回 error。
 """
 
 from __future__ import annotations
@@ -20,7 +26,12 @@ logger = logging.getLogger(__name__)
 
 
 async def search_knowledge(query: str, top_k: int = 4) -> dict[str, Any]:
-    """检索知识库,返回相关 chunk。"""
+    """检索知识库,返回相关 chunk。
+
+    参数:query 检索词(topic id 或关键词);top_k 返回条数。
+    返回:{query, docs:[{topic_id, title, text(截 200 字), score}]};
+    text 截断是为控制回传给 LLM 的上下文长度。
+    """
     retriever = get_retriever()
     res = await retriever.retrieve(query, top_k=top_k, mode="hybrid")
     return {
@@ -38,8 +49,11 @@ async def search_knowledge(query: str, top_k: int = 4) -> dict[str, Any]:
 
 
 def save_note(text: str) -> dict[str, Any]:
-    """记笔记(演示用,存内存)。"""
-    # 实际笔记存在 agent state 的 notes 列表里;这里仅返回确认
+    """记笔记(演示用,存内存)。
+
+    参数:text 笔记内容。返回确认信息 {saved, length, preview}。
+    实际笔记存在 agent state 的 notes 列表里;这里仅返回确认。
+    """
     return {"saved": True, "length": len(text), "preview": text[:80]}
 
 
@@ -84,7 +98,12 @@ TOOL_REGISTRY = {
 
 
 async def execute_tool(name: str, arguments: dict[str, Any]) -> Any:
-    """执行工具调用。同步工具直接调,异步工具 await。"""
+    """执行工具调用。同步工具直接调,异步工具 await。
+
+    分发逻辑:从 TOOL_REGISTRY 按名取函数;用 inspect 判断是否为协程函数,
+    分别 await / 直接调用。未知工具或执行异常不抛出,而是返回 {"error": ...},
+    避免单个工具失败中断整个状态机。
+    """
     fn = TOOL_REGISTRY.get(name)
     if fn is None:
         return {"error": f"未知工具:{name}"}

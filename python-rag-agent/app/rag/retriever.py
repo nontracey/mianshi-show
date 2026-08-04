@@ -1,10 +1,18 @@
-"""检索器:向量 + BM25 + RRF 融合 + Rerank。
+"""检索器:向量 + BM25 + RRF 融合 + Rerank。这是 RAG 链路的第五环,混合检索是核心亮点。
+
+设计动机:纯向量对专有名词/精确关键词召回不稳(如"Nacos 注册发现"可能被泛化
+理解),而 BM25 能精确匹配关键词。因此做混合:向量负责语义召回,BM25 负责关键词
+召回,再用 RRF 融合两路结果。
 
 策略(见 docs/01 §3.1):
 1. 向量检索 top_k_vector(默认 8)
 2. BM25 检索 top_k_vector(rank_bm25,中文按字符切分 -- 简单但有效;M3 可换 jieba)
 3. RRF 融合两路排序,k=60
 4. (可选)Rerank:对融合后 top_n 用 CrossEncoder 精排,取 top_k_final
+
+为什么用 RRF 而非加权分数相加:向量分是余弦相似度(0~1),BM25 分可能 0~20,
+量纲不同直接加权无意义;RRF 只用"排名倒数"不用原始分数,天然跨检索器可比,
+也不用调权重超参。
 
 每一步可开关,M3 benchmark 对比 纯向量 vs 混合 vs 混合+rerank。
 """
@@ -26,6 +34,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class RetrievalResult:
+    """一次检索的结果。docs 为按相关度降序的文档;mode 标记实际使用的检索模式。"""
+
     docs: list[ScoredDoc]
     mode: str  # "vector" | "hybrid" | "hybrid_rerank"
 
@@ -33,12 +43,15 @@ class RetrievalResult:
 def _bm25_tokenize(text: str) -> list[str]:
     """中文按字符 + 英文按词的简易分词。避免 jieba 依赖。
 
+    规则:遇到中文字符单独成 token(中文按字切);连续字母/数字聚合成一个英文
+    token(转小写);其余字符作为分隔符。
     对中文检索效果不如 jieba,但零依赖且对短文本尚可;M3 深挖可对比。
     """
     tokens: list[str] = []
     buf = ""
     for ch in text:
         if "一" <= ch <= "鿿":
+            # 中文字符:先冲刷已累积的英文 buf,再单字成 token
             if buf:
                 tokens.append(buf.lower())
                 buf = ""
@@ -55,7 +68,11 @@ def _bm25_tokenize(text: str) -> list[str]:
 
 
 class BM25Index:
-    """内存 BM25 索引。基于 rank-bm25;懒加载,未装则用纯 Python 实现的简易版。"""
+    """内存 BM25 索引。基于 rank-bm25;懒加载,未装则用纯 Python 实现的简易版。
+
+    设计:优先用成熟的 rank_bm25(BM25Okapi);若环境没装,降级为纯 Python 的
+    TF 式打分保证功能可用(精度略降),避免硬依赖。
+    """
 
     def __init__(self) -> None:
         self._docs: list[Chunk] = []
@@ -64,6 +81,7 @@ class BM25Index:
         self._fallback = False
 
     def build(self, docs: list[Chunk]) -> None:
+        """用全部 chunk 构建 BM25 索引(预先分词)。ingest 时调用一次。"""
         self._docs = docs
         self._tokenized = [_bm25_tokenize(d.text) for d in docs]
         try:
@@ -75,6 +93,7 @@ class BM25Index:
             self._fallback = True
 
     def query(self, q: str, top_k: int) -> list[tuple[Chunk, float]]:
+        """对查询分词、打分、降序取 top_k;过滤零分(完全不相关)文档。"""
         if not self._docs:
             return []
         q_tokens = _bm25_tokenize(q)
@@ -86,7 +105,10 @@ class BM25Index:
         return [(self._docs[i], float(s)) for i, s in ranked if s > 0]
 
     def _fallback_scores(self, q_tokens: list[str]) -> list[float]:
-        """纯 Python TF 式打分(无 IDF,粗排)。仅在 rank-bm25 缺失时用。"""
+        """纯 Python TF 式打分(无 IDF,粗排)。仅在 rank-bm25 缺失时用。
+
+        分数 = 查询词在文档中出现的总次数 / 文档长度。仅作降级兜底。
+        """
         out = []
         for doc_tokens in self._tokenized:
             if not doc_tokens:
@@ -101,6 +123,7 @@ _bm25_index: BM25Index | None = None
 
 
 def get_bm25_index() -> BM25Index:
+    """返回全局 BM25Index 单例(懒加载)。"""
     global _bm25_index
     if _bm25_index is None:
         _bm25_index = BM25Index()
@@ -108,6 +131,7 @@ def get_bm25_index() -> BM25Index:
 
 
 def reset_bm25_index() -> None:
+    """重置 BM25 索引单例。重新 ingest / 测试用。"""
     global _bm25_index
     _bm25_index = None
 
@@ -117,7 +141,12 @@ def _rrf_fuse(
     bm25_results: list[tuple[Chunk, float]],
     k: int = 60,
 ) -> list[ScoredDoc]:
-    """Reciprocal Rank Fusion:score = Σ 1/(k + rank_i)。两路结果按 chunk 全文去重合并。"""
+    """Reciprocal Rank Fusion:score = Σ 1/(k + rank_i)。两路结果按 chunk 全文去重合并。
+
+    只用每路的"排名"(rank)而非原始分数,因此向量分与 BM25 分量纲不同也没关系。
+    k=60 是原论文推荐值,对排名靠前项放大差异、对靠后项趋于平滑。
+    两路都命中的文档会累加两次贡献,自然排得更靠前。
+    """
     scores: dict[str, float] = {}
     docs_by_key: dict[str, ScoredDoc] = {}
 
@@ -125,23 +154,30 @@ def _rrf_fuse(
         # 用全文 hash 作去重 key:前 N 字相同但内容不同的 chunk 不会被误并。
         return hashlib.md5(text.encode("utf-8")).hexdigest()
 
+    # 向量路:按排名累加 RRF 贡献。rank 从 0 起,故公式用 rank+1。
     for rank, d in enumerate(vector_results):
         key = _key(d.text)
         scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank + 1)
         docs_by_key[key] = d
+    # BM25 路:同样按排名累加;若该文档向量路已出现则复用其 ScoredDoc。
     for rank, (chunk, _s) in enumerate(bm25_results):
         key = _key(chunk.text)
         scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank + 1)
         if key not in docs_by_key:
             docs_by_key[key] = ScoredDoc(text=chunk.text, metadata=chunk.metadata, score=0.0)
 
+    # 按融合分降序输出。
     fused = [(doc, scores[key]) for key, doc in docs_by_key.items()]
     fused.sort(key=lambda x: x[1], reverse=True)
     return [ScoredDoc(text=d.text, metadata=d.metadata, score=s) for d, s in fused]
 
 
 class Retriever:
-    """检索器。默认 hybrid(向量+BM25+RRF);mode 可切换。"""
+    """检索器。默认 hybrid(向量+BM25+RRF);mode 可切换。
+
+    组合 VectorStore(向量召回)与 BM25Index(关键词召回),按需融合/重排。
+    依赖通过构造注入(便于测试),缺省懒加载全局单例。
+    """
 
     def __init__(
         self,
@@ -152,11 +188,13 @@ class Retriever:
         self._embedder = embedder
 
     def _get_store(self) -> VectorStore:
+        """懒加载向量库单例。"""
         if self._store is None:
             self._store = get_vector_store()
         return self._store
 
     def _get_embedder(self) -> Embedder:
+        """懒加载 Embedder 单例。"""
         if self._embedder is None:
             self._embedder = get_embedder()
         return self._embedder
@@ -168,6 +206,16 @@ class Retriever:
         top_k: int | None = None,
         mode: str = "hybrid",  # "vector" | "hybrid" | "hybrid_rerank"
     ) -> RetrievalResult:
+        """按 mode 检索,返回 RetrievalResult。
+
+        参数:
+          question 查询文本;
+          top_k    最终返回条数,缺省取配置 rag_top_k_final;
+          mode     vector(纯向量)/ hybrid(向量+BM25+RRF)/ hybrid_rerank(再精排)。
+        流程:先向量检索 top_k_vector 条;非 vector 模式再叠加 BM25 并 RRF 融合;
+        hybrid_rerank 在融合结果上扩大候选(3 倍,至少 10)送 rerank 精排。
+        未知 mode 降级到 hybrid。
+        """
         s = get_settings()
         final_k = top_k or s.rag_top_k_final
         vec_k = s.rag_top_k_vector
@@ -179,9 +227,11 @@ class Retriever:
         vec_results = await store.query(q_emb, top_k=vec_k)
 
         if mode == "vector":
+            # 纯向量:直接取前 final_k。
             docs = vec_results[:final_k]
             return RetrievalResult(docs=docs, mode="vector")
 
+        # 混合:叠加 BM25 召回,RRF 融合两路。
         bm25 = get_bm25_index()
         bm25_results = bm25.query(question, top_k=vec_k)
         fused = _rrf_fuse(vec_results, bm25_results, k=s.rrf_k)
@@ -190,6 +240,7 @@ class Retriever:
             return RetrievalResult(docs=fused[:final_k], mode="hybrid")
 
         if mode == "hybrid_rerank":
+            # 扩大候选集(至少 10 条)再精排,给 reranker 更多可排序空间。
             reranked = await _rerank(question, fused[: max(final_k * 3, 10)])
             return RetrievalResult(docs=reranked[:final_k], mode="hybrid_rerank")
 
@@ -199,7 +250,11 @@ class Retriever:
 
 
 async def _rerank(question: str, docs: list[ScoredDoc]) -> list[ScoredDoc]:
-    """Rerank:优先用 sentence-transformers CrossEncoder;未装则按原顺序返回。"""
+    """Rerank:优先用 sentence-transformers CrossEncoder;未装则改用 LLM 重排。
+
+    CrossEncoder 对 (question, doc) 逐对打分,比 RRF 的排名融合更精细,但更慢,
+    故只对融合后的少量候选精排。任何不可用情况都兜底到 LLM 重排,不阻断流程。
+    """
     if not docs:
         return []
     try:
@@ -227,6 +282,7 @@ async def _llm_rerank(question: str, docs: list[ScoredDoc]) -> list[ScoredDoc]:
 
     from app.infra.llm import get_llm
 
+    # 每个候选截断到 200 字,控制 prompt 长度(重排只需判断主题相关度)。
     listing = "\n".join(f"[{i}] {d.text[:200]}" for i, d in enumerate(docs))
     messages = [
         {"role": "system", "content": '你是检索结果重排器。按候选与【问题】的相关度从高到低排序,只输出 JSON:{"order":[序号,...]}。不要解释。'},
@@ -234,6 +290,7 @@ async def _llm_rerank(question: str, docs: list[ScoredDoc]) -> list[ScoredDoc]:
     ]
     try:
         content, _ = await get_llm().chat(messages, temperature=0)
+        # 剥离模型可能包裹的 markdown 代码围栏,再解析 JSON。
         raw = content.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         order = json.loads(raw).get("order", [])
         reranked = [docs[i] for i in order if isinstance(i, int) and 0 <= i < len(docs)]
@@ -242,6 +299,7 @@ async def _llm_rerank(question: str, docs: list[ScoredDoc]) -> list[ScoredDoc]:
                 reranked.append(d)
         return reranked
     except Exception as e:
+        # 重排失败不阻断:回退原 RRF 顺序(质量已不错)。
         logger.warning("LLM 重排失败,回退原序:%s", e)
         return docs
 
@@ -250,6 +308,7 @@ _cross_encoder = None
 
 
 def _get_cross_encoder():
+    """懒加载 CrossEncoder 模型(首次用时才下载/加载)。"""
     global _cross_encoder
     if _cross_encoder is None:
         from sentence_transformers import CrossEncoder  # type: ignore
@@ -262,6 +321,7 @@ _retriever: Retriever | None = None
 
 
 def get_retriever() -> Retriever:
+    """返回全局 Retriever 单例(懒加载)。"""
     global _retriever
     if _retriever is None:
         _retriever = Retriever()
@@ -269,5 +329,6 @@ def get_retriever() -> Retriever:
 
 
 def reset_retriever() -> None:
+    """重置 Retriever 单例。重新 ingest / 测试用。"""
     global _retriever
     _retriever = None

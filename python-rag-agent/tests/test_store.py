@@ -1,4 +1,11 @@
-"""内存向量库单测。"""
+"""内存向量库单测。
+
+测什么:InMemoryVectorStore 对 VectorStore 契约的实现——
+add/count/query(top_k + 余弦排序)/reset/参数校验。
+怎么测:手工构造互相正交的单位向量,查询命中时余弦相似度精确
+为 1.0,可用 pytest.approx 严格断言排序与分数,无需真实 embedding。
+(Chroma/pgvector 实现依赖外部服务,由部署环境验证,不在单测覆盖。)
+"""
 
 from __future__ import annotations
 

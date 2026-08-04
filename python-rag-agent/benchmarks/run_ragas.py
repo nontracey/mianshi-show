@@ -79,6 +79,7 @@ class _DryRunLLM:
 
 
 def load_eval_set() -> list[dict]:
+    """读取评测集 JSON,返回 evals 列表(每条含 question/relevant_ids/ground_truth)。"""
     with EVAL_SET.open("r", encoding="utf-8") as f:
         data = json.load(f)
     return data.get("evals", [])
@@ -165,7 +166,15 @@ async def compute_generation_metrics(question: str, answer: str, contexts: list[
 
 
 async def run_one_mode(mode: str, evals: list[dict], limit: int | None, dry_run: bool = False, with_ragas: bool = False) -> dict:
-    """跑指定 mode 的评测,返回聚合指标。"""
+    """跑指定 mode 的评测,返回聚合指标。
+
+    步骤:
+    1. 初始化 LLM(dry_run 用 _DryRunLLM 占位,仅验证流程);
+    2. 向量库为空时先完整 ingest(切分+embed+BM25);
+    3. 逐条评测:检索并计时 → 计算检索指标 → 可选计算
+       RAGAS 生成质量指标(--with-ragas,需先生成答案);
+    4. 聚合:hit_rate/MRR/coverage/延迟取均值,details 留明细。
+    """
     s = get_settings()
     llm: LLMClient | None = None
     if dry_run:
@@ -250,6 +259,12 @@ async def run_one_mode(mode: str, evals: list[dict], limit: int | None, dry_run:
 
 
 def write_report(metrics: dict, with_ragas: bool) -> None:
+    """把聚合指标渲染成 report.md(对比表 + 自动结论 + 指标说明)。
+
+    两个细节:本地 embedding 绝对路径只取模型名写入报告(不泄露
+    机器路径);自动结论诚实呈现——混合未超过纯向量时如实说明,
+    不夸大优化效果。
+    """
     s = get_settings()
     _emb = s.local_embedding_model if s.embedding_provider != "api" else s.embedding_model
     # 本地绝对路径只显示模型名,不把机器路径写进报告
@@ -309,6 +324,8 @@ def write_report(metrics: dict, with_ragas: bool) -> None:
 
 
 async def main_async(args: argparse.Namespace) -> None:
+    """评测主流程:加载评测集 → 按单模式或三档对比逐个跑 →
+    落盘 metrics.json + report.md(dry-run 只打印摘要不落盘)。"""
     global EVAL_SET
     if args.eval_set:
         EVAL_SET = Path(args.eval_set)
@@ -354,6 +371,7 @@ async def main_async(args: argparse.Namespace) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """解析 CLI 参数:单模式/对比模式、条数限制、RAGAS 开关、dry-run 等。"""
     p = argparse.ArgumentParser(description="RAG 评测:对比检索模式")
     p.add_argument("--mode", default="hybrid", choices=MODES, help="单模式跑")
     p.add_argument("--compare", action="store_true", help="跑三档对比")
@@ -365,6 +383,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """脚本入口:解析参数后用 asyncio.run 跑异步主流程。"""
     args = parse_args()
     asyncio.run(main_async(args))
 

@@ -1,4 +1,16 @@
-"""pytest 配置:加载样例知识库,提供 fake LLM(测试不依赖真实 API key)。"""
+"""pytest 配置:加载样例知识库,提供 fake LLM(测试不依赖真实 API key)。
+
+提供四个 fixture:
+- kb_loaded(autouse):每个用例前后重置并重载样例知识库,保证隔离;
+- fake_llm:一个 FakeLLM 实例,可按需自定义预设响应;
+- mock_stack:把 llm/embedder/store/retriever 单例全部换成 fake,
+  供端到端 API 测试用(不产生任何真实网络调用);
+- ingested:在 mock_stack 基础上完成"切分+embed+入库+BM25",
+  模拟已经跑过 /api/ingest 的状态。
+
+两个关键隔离决策:只用内置样例 KB(不拉远程全量 KB),
+只用 FakeLLM(不依赖真实 API Key 与网络)。
+"""
 
 from __future__ import annotations
 

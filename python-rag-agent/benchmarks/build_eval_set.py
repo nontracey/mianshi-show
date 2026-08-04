@@ -29,6 +29,14 @@ from app.rag.loader import _load_from_local_clone
 
 
 def build(n: int, seed: int, out: Path) -> None:
+    """构建评测集:从全量 KB 随机抽 n 个可出题 topic,生成评测条目。
+
+    步骤:加载本地 clone → 过滤 production 且有 recallPrompts 的
+    topic → 固定 seed 抽样(可复现)→ 每个 topic 取第一条
+    recallPrompt 作 question,relevant_ids 记源 topic id,
+    ground_truth 拼 summary+mustHave(供关键词覆盖度计算)
+    → 写出 JSON(含 contentVersion 便于追溯语料版本)。
+    """
     s = get_settings()
     if not s.kb_content_path:
         raise SystemExit("请设置 KB_CONTENT_PATH 指向 mianshi-zhilian-content 本地 clone")
@@ -69,6 +77,7 @@ def build(n: int, seed: int, out: Path) -> None:
 
 
 def main() -> None:
+    """CLI 入口:解析 --n/--seed/--out 参数后调 build()。"""
     p = argparse.ArgumentParser()
     p.add_argument("--n", type=int, default=30, help="抽样评测条数")
     p.add_argument("--seed", type=int, default=42, help="随机种子(可复现)")

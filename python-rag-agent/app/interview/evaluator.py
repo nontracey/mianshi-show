@@ -2,6 +2,13 @@
 
 rubric 与「面试智练」App 同源(mianshi-zhilian-content),客户端/服务端同一份评分标准。
 强制 JSON 输出;解析失败重试一次,仍失败则降级为文本反馈(degraded=true)。
+
+设计要点:
+  - 评分标准不是现场编的:从 KnowledgeBase 读该 topic 的 rubric(必答点/加分点/
+    常见错误/四维权重),拼进评分 System Prompt,主观空间被结构化标准压缩;
+  - temperature=0 让同一回答多次评估结果一致(可复现),但非绝对确定,故还需
+    JSON 结构化 + 校验兜底;
+  - 流程:按 question_id 反查 topic -> 组评分 Prompt -> chat_json -> 解析为 Evaluation。
 """
 
 from __future__ import annotations
@@ -49,6 +56,11 @@ SYSTEM_PROMPT = """你是资深技术面试官,按给定评分标准客观评估
 
 
 def _build_system_prompt(rubric: dict[str, Any]) -> str:
+    """把 topic 的 rubric 填进评分 System Prompt 模板。
+
+    从 rubric 读四维权重(scoreWeights,缺失给默认值)与必答点/加分点/常见错误,
+    序列化为 JSON 字符串嵌入,保证评分标准与知识库一致。
+    """
     weights = rubric.get("scoreWeights", {})
     return SYSTEM_PROMPT.format(
         weight_coverage=weights.get("coverage", 25),
@@ -62,8 +74,15 @@ def _build_system_prompt(rubric: dict[str, Any]) -> str:
 
 
 def _parse_eval(content: Any) -> Evaluation:
-    """把 LLM 返回的 JSON dict 转 Evaluation。容错字段名。"""
+    """把 LLM 返回的 JSON dict 转 Evaluation。容错字段名。
+
+    容错策略:
+      - _lift 按多个候选字段名取值(LLM 可能用 hit/hit_points/hitPoints 等别名);
+      - score 转 int 并 clamp 到 [0,100],转换失败给 0;
+      - dimension_scores/hit/missed/mistakes 做类型守卫,非预期类型给安全默认值。
+    """
     def _lift(*keys: str, default: Any = None) -> Any:
+        # 依次尝试多个字段名,取第一个非 None 的值(容忍 LLM 输出字段名不一致)。
         for k in keys:
             if k in content and content[k] is not None:
                 return content[k]
@@ -82,7 +101,7 @@ def _parse_eval(content: Any) -> Evaluation:
         score = int(round(float(score)))
     except (TypeError, ValueError):
         score = 0
-    score = max(0, min(100, score))
+    score = max(0, min(100, score))  # clamp 到合法区间
 
     return Evaluation(
         score=score,
@@ -104,6 +123,12 @@ async def evaluate_answer(
     """评估用户回答。temperature=0 保证可复现。
 
     question_id 形如 java.concurrency.volatile.recall.1,前缀即 topic id。
+
+    流程与边界:
+      1. 反查 topic;不存在抛 ValueError(上层返回 404);
+      2. rubric 必须有 mustHave,否则无法评估,抛 ValueError;
+      3. 找到对应 recallPrompt 原文作为评估上下文(让 judge 知道"在问什么");
+      4. chat_json 强制 JSON;失败重试一次,仍失败降级为 degraded=True 的文本反馈。
     """
     client = llm or get_llm()
     base = kb or get_kb()
@@ -115,6 +140,7 @@ async def evaluate_answer(
 
     rubric = topic.rubric or {}
     if not rubric.get("mustHave"):
+        # 没有必答点就无法结构化评分,直接报错(不硬编标准)。
         raise ValueError(f"topic 缺少 rubric.mustHave,无法评估:{topic_id}")
 
     system_prompt = _build_system_prompt(rubric)
@@ -134,10 +160,12 @@ async def evaluate_answer(
     try:
         content, _ = await client.chat_json(messages, temperature=0.0)
     except LLMError as e:
+        # JSON 解析失败:重试一次(LLM 偶发不合规输出)。
         logger.warning("评估 JSON 解析失败,重试一次:%s", e)
         try:
             content, _ = await client.chat_json(messages, temperature=0.0)
         except LLMError as e2:
+            # 重试仍失败:降级为文本反馈,标记 degraded,保证接口不 500。
             logger.error("评估重试仍失败,降级为文本反馈:%s", e2)
             return Evaluation(
                 score=0,
@@ -150,7 +178,11 @@ async def evaluate_answer(
 
 
 def _extract_topic_id(question_id: str) -> str:
-    """question_id = topic_id + '.recall.N'。剥掉最后两段。"""
+    """question_id = topic_id + '.recall.N'。剥掉最后两段。
+
+    标准形如 a.b.c.recall.1 -> 去掉末尾 'recall.1' 得 a.b.c。
+    fallback:若无 '.recall.' 段,则退化为剥掉最后一段。
+    """
     parts = question_id.split(".")
     if len(parts) >= 3 and parts[-2] == "recall":
         return ".".join(parts[:-2])

@@ -1,4 +1,10 @@
-"""出题模块单测。"""
+"""出题模块单测。
+
+测什么:generate_questions 的核心行为——复用知识库人工撰写的
+recallPrompts(而非 LLM 生成)、difficulty 过滤、未知 topic 抛
+ValueError(上层映射为 404)。
+附带:最后一个用例顺带验收样例知识库加载正确(测试数据基线)。
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,13 @@
-"""切分模块单测。"""
+"""切分模块单测。
+
+测什么:splitter 的两层逻辑——
+1. 通用递归切分(_split_recursive):短文本整段保留、长文本按
+   chunk_size 切分(overlap 合并允许片段略超);
+2. 卡片类型感知规则(split_topic):checklist 等结构化短卡整张
+   入库不被切碎(故意传极小 chunk_size=10 反证)、metadata 完整
+   (topic_id/domain/title/card_type 等)、summary 独立成 chunk。
+最后一个用例验收全库聚合切分的规模合理性。
+"""
 
 from __future__ import annotations
 

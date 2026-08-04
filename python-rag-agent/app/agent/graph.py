@@ -7,6 +7,18 @@
 
 Function Calling:retrieve 节点把 search_knowledge 工具传给 LLM,LLM 返回 tool_call,
 执行后结果回传--这是真实的 OpenAI Function Calling。
+
+节点职责:
+  retrieve   用 FC 调 search_knowledge 检索 topic 知识(出题前了解重点);
+  ask        从 topic 的 recallPrompts 出一道题;
+  simulate   让 LLM 扮演"3 年中级工程师"模拟作答;
+  evaluate   LLM-as-judge 按 rubric 打分;
+  decide     条件边:score<70 且有剩余轮次 -> followup 追问(回到 ask);否则 advise;
+  advise     给学习建议,并调 save_note 记笔记。
+
+两个关键工程兜底(深挖可讲):
+  1. LLM 可能不按预期调工具 -> retrieve 里没拿到 tool_call 时显式调 retriever 兜底;
+  2. 回答已满分时 LLM 会硬凑跑题建议 -> 直接返回确定性正反馈,跳过 LLM。
 """
 
 from __future__ import annotations
@@ -42,18 +54,31 @@ SYSTEM_ADVISE = (
 
 
 class AgentOrchestrator:
-    """Agent 状态机编排器。"""
+    """Agent 状态机编排器。
+
+    职责:按 retrieve->ask->simulate->evaluate->decide->advise 顺序执行节点,
+    每步 yield 一个 StreamEvent 供上层 SSE 推送;decide 条件边决定是否追问。
+    LLMClient 通过构造注入(缺省用全局单例),便于测试替换为 FakeLLM。
+    """
 
     def __init__(self, llm: LLMClient | None = None) -> None:
         self._llm = llm
 
     def _client(self) -> LLMClient:
+        """懒加载 LLMClient(未注入时取全局单例)。"""
         if self._llm is None:
             self._llm = get_llm()
         return self._llm
 
     async def run(self, topic: str, rounds: int = 1) -> AsyncIterator[StreamEvent]:
-        """跑一轮模拟面试,SSE 流式推事件。"""
+        """跑一轮模拟面试,SSE 流式推事件。
+
+        参数:topic 考察的知识点;rounds 最大轮数(至少 1)。
+        流程:先 retrieve 检索;然后循环执行 ask->simulate->evaluate->decide,
+        decide 条件边决定继续追问还是结束;最后 advise 给建议。
+        每完成一步 yield 对应 StreamEvent;任一步 LLMError 转为 error 事件并终止,
+        保证流始终能正常收尾。
+        """
         state = AgentState(topic=topic, rounds=max(1, rounds))
         client = self._client()
 
@@ -139,6 +164,8 @@ class AgentOrchestrator:
             )
 
             # 5. decide(条件边)
+            # 追问判定:评估分低于 70 且还有剩余轮次,才继续追问;否则进入 advise。
+            # 这是状态机的"条件边",等价于 LangGraph 的 conditional_edge。
             should_followup = ev.score < 70 and state.round < state.rounds
             if should_followup:
                 yield StreamEvent(
@@ -148,7 +175,7 @@ class AgentOrchestrator:
                         "reason": f"score={ev.score} < 70 且 rounds 未到上限,继续追问",
                     },
                 )
-                continue
+                continue  # 回到 while 循环顶部,重新出题(追问)
 
             # 否则进入 advise
             state.done = True
@@ -189,7 +216,13 @@ class AgentOrchestrator:
         client: LLMClient,
         topic: str,
     ) -> tuple[list[ScoredDoc], dict[str, Any] | None]:
-        """retrieve 节点:用 Function Calling 调 search_knowledge 工具。"""
+        """retrieve 节点:用 Function Calling 调 search_knowledge 工具。
+
+        流程:把 search_knowledge 作为唯一工具传给 LLM(tool_choice=required 强制
+        调用);部分 OpenAI 兼容端点不支持 required,失败则降级 auto。
+        兜底:若 LLM 仍没调工具,直接用 retriever 检索(不依赖模型行为)。
+        返回 (检索结果 docs, tool_call 轨迹 dict 或 None)。
+        """
         messages = [
             {"role": "system", "content": SYSTEM_RETRIEVE.format(topic=topic)},
             {"role": "user", "content": f"topic={topic}"},
@@ -207,7 +240,7 @@ class AgentOrchestrator:
             )
 
         if not tool_calls:
-            # LLM 没调工具,直接用 retriever 检索(降级)
+            # LLM 没调工具,直接用 retriever 检索(降级兜底,不依赖模型行为)
             logger.warning("LLM 未调用 search_knowledge 工具,降级直接检索")
             retriever = get_retriever()
             res = await retriever.retrieve(topic, mode="hybrid")
@@ -232,6 +265,7 @@ _orchestrator: AgentOrchestrator | None = None
 
 
 def get_orchestrator() -> AgentOrchestrator:
+    """返回全局 AgentOrchestrator 单例(懒加载)。"""
     global _orchestrator
     if _orchestrator is None:
         _orchestrator = AgentOrchestrator()
@@ -239,5 +273,6 @@ def get_orchestrator() -> AgentOrchestrator:
 
 
 def reset_orchestrator() -> None:
+    """重置编排器单例。测试用(注入 FakeLLM 后重建)。"""
     global _orchestrator
     _orchestrator = None

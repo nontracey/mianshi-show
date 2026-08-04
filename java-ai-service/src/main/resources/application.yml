@@ -1,36 +1,46 @@
+# ============================================================================
+# java-ai-service 应用配置(C 项目,与 B/D 同构)。
+# 所有敏感/环境相关的值都用 ${ENV:default} 占位,便于按环境覆盖。
+# ============================================================================
+
+# Web 服务器(主体为 Spring MVC;Agent SSE 端点用 WebFlux,两者共存)
 server:
-  port: ${SERVER_PORT:8080}
+  port: ${SERVER_PORT:8080}          # 服务端口
   servlet:
     encoding:
-      charset: UTF-8
+      charset: UTF-8                 # 中文内容,强制 UTF-8
       force: true
 
 spring:
   application:
     name: java-ai-service
+
   # 默认排除 PgVectorStore 自动配置(避免和内存版 VectorStoreService Bean 冲突 + 连 Postgres 失败);
   # 启用 pgvector 模式时设 app.vector-store=pgvector 并去掉此 exclude(或用 profile)
   autoconfigure:
     exclude:
       - org.springframework.ai.autoconfigure.vectorstore.pgvector.PgVectorStoreAutoConfiguration
+
   ai:
+    # Spring AI OpenAI 兼容接入(可指向通义/DeepSeek 等 OpenAI 兼容端点)
     openai:
-      base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
-      api-key: ${OPENAI_API_KEY:}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}  # OpenAI 兼容 base url
+      api-key: ${OPENAI_API_KEY:}                             # API Key(从环境变量注入,勿硬编码)
       chat:
         options:
-          model: ${LLM_MODEL:gpt-4o-mini}
-          temperature: 0
+          model: ${LLM_MODEL:gpt-4o-mini}  # 对话模型
+          temperature: 0                   # 温度 0:评估/生成都追求可复现
       embedding:
         options:
-          model: ${EMBEDDING_MODEL:text-embedding-3-small}
+          model: ${EMBEDDING_MODEL:text-embedding-3-small}  # 向量化模型(维度需与向量库对齐)
+
     # pgvector 生产向量库(app.vector-store=pgvector 时启用,需配 PG 连接)
     vectorstore:
       pgvector:
         dimensions: ${PGVECTOR_DIMENSIONS:512}  # 对齐本地 bge-small-zh-v1.5(512维);用 OpenAI embedding-3-small 时设 1536
-        index-type: HNSW
-        distance-type: COSINE_DISTANCE
-        initialize-schema: true
+        index-type: HNSW                        # HNSW 索引:查询快、召回高(百万级以下默认)
+        distance-type: COSINE_DISTANCE          # 余弦距离
+        initialize-schema: true                 # 首次启动自动建表
         table-name: vector_store
         schema-name: public
 
@@ -40,23 +50,29 @@ spring:
     username: ${PG_USER:postgres}
     password: ${PG_PASSWORD:postgres}
 
-# 自定义配置
+# ----------------------------------------------------------------------------
+# 自定义配置,绑定到 AppProperties(@ConfigurationProperties(prefix = "app"))
+# ----------------------------------------------------------------------------
 app:
   kb:
-    content-url: ${KB_CONTENT_URL:https://raw.githubusercontent.com/nontracey/mianshi-zhilian-content/main/manifest.json}
-    content-path: ${KB_CONTENT_PATH:}
-    sample-path: ${KB_SAMPLE_PATH:../data/knowledge_base.sample.json}
-  vector-store: ${VECTOR_STORE:memory}
-  rate-limit-per-minute: ${RATE_LIMIT_PER_MINUTE:20}
+    # 知识库三层数据源,加载优先级:content-path > content-url > sample-path(见 Loader)
+    content-url: ${KB_CONTENT_URL:https://raw.githubusercontent.com/nontracey/mianshi-zhilian-content/main/manifest.json}  # 远程 manifest
+    content-path: ${KB_CONTENT_PATH:}                                                # 本地目录/manifest(第一优先)
+    sample-path: ${KB_SAMPLE_PATH:../data/knowledge_base.sample.json}                # 内置样例(兜底)
+  vector-store: ${VECTOR_STORE:memory}          # 向量库实现:memory(dev)/ pgvector(生产)
+  rate-limit-per-minute: ${RATE_LIMIT_PER_MINUTE:20}  # 每分钟限流阈值(预留配置)
 
+# Swagger / OpenAPI 文档
 springdoc:
   swagger-ui:
-    path: /docs
+    path: /docs          # Swagger UI 访问路径
   api-docs:
-    path: /openapi.json
+    path: /openapi.json  # OpenAPI JSON 路径
 
+# 日志
 logging:
   level:
     com.nontracey.aiservice: INFO
   pattern:
+    # 日志格式:%X{traceId:-} 打印 TraceIdFilter 写入 MDC 的链路 ID,便于全链路排查
     console: "%d{HH:mm:ss} [%thread] %-5level [%X{traceId:-}] %logger{36} - %msg%n"

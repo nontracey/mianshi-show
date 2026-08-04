@@ -1,6 +1,9 @@
 """LLM-as-judge 评估单测:用 FakeLLM 避免真实 API 调用,保证可重复运行。
 
 验收要点(M1):对同一回答多次评估结果一致(temperature=0)+ 命中/遗漏正确解析。
+
+覆盖:topic_id 反解析、_parse_eval 对完整 JSON/字段别名/越界分数的
+容错解析、正常评估路径、可复现性、JSON 失败重试+降级、无效题号。
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ from app.schemas import Evaluation
 
 
 def test_extract_topic_id():
+    """question_id 去掉 .recall.N 后缀应还原 topic_id,无后缀时剥最后一段。"""
     assert _extract_topic_id("java.concurrency.volatile.recall.1") == "java.concurrency.volatile"
     assert _extract_topic_id("database.mysql-index.recall.2") == "database.mysql-index"
     # fallback:无 .recall. 段时剥最后一段
@@ -21,6 +25,7 @@ def test_extract_topic_id():
 
 
 def test_parse_eval_full_json():
+    """标准评估 JSON 应完整解析为 Evaluation(含维度分与四明细,非降级)。"""
     content = {
         "score": 85,
         "dimension_scores": {"coverage": 80, "accuracy": 90, "interviewExpression": 85, "depth": 85},

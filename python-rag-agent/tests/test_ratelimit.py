@@ -1,4 +1,10 @@
-"""限流单测。"""
+"""限流单测。
+
+测什么:SlidingWindowLimiter 的三个行为——
+超限拒绝(附 reset_in)、自带 Key 旁路、各 IP 互不影响。
+怎么测:构造时注入很小的 per_minute(2~3 次),不需要等待真实
+时间窗口,同步循环调用即可触发限流,用例快速且确定。
+"""
 
 from __future__ import annotations
 

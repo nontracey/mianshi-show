@@ -1,10 +1,17 @@
-"""向量库抽象 + 实现。
+"""向量库抽象 + 实现。这是 RAG 链路的第四环(存储)。
 
-接口:add(docs) / query(embedding, top_k) / count()
+接口:add(docs) / query(embedding, top_k) / count() / reset()
+
+抽象的意义:上层(retriever / api)只依赖 VectorStore 接口,切换后端不改业务代码;
+三语言(C/D)也保持同接口,契约一致。
+
 实现:
   - InMemoryVectorStore(默认,dev/demo,纯 Python cosine,零依赖)
   - ChromaVectorStore(可选,VECTOR_STORE=chroma 时,持久化到 CHROMA_PATH)
-  - PgVectorStore(M6/prod,占位待实现)
+  - PgVectorStore(M6/prod,pgvector,生产推荐)
+
+get_vector_store() 按配置选后端;任一后端不可用(缺依赖/连不上 DB)自动降级到
+memory,保证服务始终可启动。
 
 InMemory 版刻意不依赖 numpy/chroma,保证网络受限也能跑通。
 """
@@ -24,13 +31,22 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ScoredDoc:
+    """带相关度分数的检索结果。text 正文 + metadata 溯源 + score 相关度。"""
+
     text: str
     metadata: dict[str, Any]
     score: float
 
 
 class VectorStore(ABC):
-    """向量库抽象。三语言(C/D)同接口。"""
+    """向量库抽象接口。三语言(C/D)同接口。
+
+    契约:
+      add(chunks, embeddings)  批量写入(两者数量必须一致);
+      query(embedding, top_k)  按余弦相似度返回 top_k 个 ScoredDoc(降序);
+      count()                  库中文档数(健康检查 / 空库判断用);
+      reset()                  清空(重新 ingest 前调用)。
+    """
 
     @abstractmethod
     async def add(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None: ...
@@ -46,7 +62,10 @@ class VectorStore(ABC):
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
-    """纯 Python cosine 相似度。"""
+    """纯 Python 余弦相似度。零向量返回 0(避免除零)。
+
+    不依赖 numpy:数据规模小(几千 chunk)时纯 Python 足够,且保证零依赖可跑。
+    """
     dot = 0.0
     na = 0.0
     nb = 0.0
@@ -60,18 +79,24 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 class InMemoryVectorStore(VectorStore):
-    """内存向量库。add 时存 (chunk, embedding);query 用 cosine 排序。"""
+    """内存向量库。add 时存 (chunk, embedding);query 用 cosine 排序。
+
+    暴力线性扫描(O(n)):数据规模小(几千 chunk)时完全够用,且零依赖;
+    规模上去后换 chroma/pgvector 即可,接口不变。
+    """
 
     def __init__(self) -> None:
         self._docs: list[tuple[Chunk, list[float]]] = []
 
     async def add(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
+        """批量写入。chunks 与 embeddings 数量必须一致,否则抛 ValueError。"""
         if len(chunks) != len(embeddings):
             raise ValueError(f"chunks({len(chunks)}) 与 embeddings({len(embeddings)}) 数量不一致")
         for c, e in zip(chunks, embeddings):
             self._docs.append((c, e))
 
     async def query(self, embedding: list[float], top_k: int = 4) -> list[ScoredDoc]:
+        """全量计算 cosine 相似度,降序取前 top_k。空库返回空列表。"""
         if not self._docs:
             return []
         scored = [
@@ -82,9 +107,11 @@ class InMemoryVectorStore(VectorStore):
         return scored[:top_k]
 
     def count(self) -> int:
+        """库中文档数。"""
         return len(self._docs)
 
     async def reset(self) -> None:
+        """清空所有文档。"""
         self._docs.clear()
 
 
@@ -101,6 +128,7 @@ class ChromaVectorStore(VectorStore):
         self._collection = None
 
     def _ensure(self) -> None:
+        """懒加载初始化 chroma client 与 collection(首次使用时才 import/连接)。"""
         if self._collection is not None:
             return
         try:
@@ -113,6 +141,7 @@ class ChromaVectorStore(VectorStore):
         self._collection = self._client.get_or_create_collection(self._collection_name)
 
     async def add(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
+        """批量写入 chroma。id 用当前数量递增生成(chunk-N)。"""
         self._ensure()
         assert self._collection is not None
         if not chunks:
@@ -126,6 +155,7 @@ class ChromaVectorStore(VectorStore):
         )
 
     async def query(self, embedding: list[float], top_k: int = 4) -> list[ScoredDoc]:
+        """查询 top_k。chroma 返回的是距离,需换算成相似度。"""
         self._ensure()
         assert self._collection is not None
         res = self._collection.query(query_embeddings=[embedding], n_results=top_k)
@@ -147,6 +177,7 @@ class ChromaVectorStore(VectorStore):
         return self._collection.count()
 
     async def reset(self) -> None:
+        """删除并重建 collection(彻底清空)。"""
         if self._collection is not None:
             self._client.delete_collection(self._collection_name)  # type: ignore[union-attr]
             self._collection = None
@@ -163,10 +194,12 @@ class PgVectorStore(VectorStore):
     """
 
     def __init__(self, dsn: str, dim: int = 512, table: str = "rag_chunks") -> None:
+        """连接 Postgres 并建表(幂等)。dim 需与 embedding 维度一致。"""
         import psycopg
         from pgvector.psycopg import register_vector
 
         self._table = table
+        # autocommit:简化事务管理,ingest 逐条写入即可见。
         self._conn = psycopg.connect(dsn, autocommit=True)
         self._conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
         register_vector(self._conn)
@@ -176,6 +209,7 @@ class PgVectorStore(VectorStore):
         )
 
     async def add(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
+        """逐条插入。metadata 序列化为 jsonb 存储。"""
         import json
 
         with self._conn.cursor() as cur:
@@ -186,6 +220,7 @@ class PgVectorStore(VectorStore):
                 )
 
     async def query(self, embedding: list[float], top_k: int = 4) -> list[ScoredDoc]:
+        """按 `<=>` cosine 距离升序取 top_k,并把距离换算为相似度返回。"""
         # pgvector `<=>` 是 cosine 距离;相似度 = 1 - 距离
         rows = self._conn.execute(
             f"SELECT text, metadata, 1 - (embedding <=> %s::vector) AS score "
@@ -195,9 +230,11 @@ class PgVectorStore(VectorStore):
         return [ScoredDoc(text=r[0], metadata=r[1], score=float(r[2])) for r in rows]
 
     def count(self) -> int:
+        """表中行数。"""
         return self._conn.execute(f"SELECT count(*) FROM {self._table}").fetchone()[0]
 
     async def reset(self) -> None:
+        """TRUNCATE 清空全表(比 DELETE 快)。"""
         self._conn.execute(f"TRUNCATE {self._table}")
 
 
@@ -217,12 +254,14 @@ def get_vector_store() -> VectorStore:
         _store = ChromaVectorStore(persist_path=s.chroma_path)
     elif vs == "pgvector":
         if not s.pgvector_url:
+            # 配了 pgvector 但没给连接串,无法连接,降级 memory。
             logger.warning("VECTOR_STORE=pgvector 但未配 PGVECTOR_URL,降级到 memory")
             _store = InMemoryVectorStore()
         else:
             try:
                 _store = PgVectorStore(dsn=s.pgvector_url)
             except Exception as e:
+                # 连接/建表失败(如 DB 未起),降级 memory 保证可启动。
                 logger.warning("pgvector 初始化失败(%s),降级到 memory", e)
                 _store = InMemoryVectorStore()
     else:
@@ -231,6 +270,7 @@ def get_vector_store() -> VectorStore:
 
 
 def reset_vector_store() -> None:
+    """重置向量库单例。测试/重新 ingest 用。"""
     global _store
     _store = None
 

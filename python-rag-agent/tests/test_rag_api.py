@@ -1,4 +1,13 @@
-"""/api/ingest 与 /api/ask 端到端单测(用 FakeLLM,不调真实 API)。"""
+"""/api/ingest 与 /api/ask 端到端单测(用 FakeLLM,不调真实 API)。
+
+测什么:HTTP 层完整链路——TestClient + mock_stack(llm/embedder/
+store 全 fake)真实走一遍 中间件→路由→RAG 服务,但零外部调用。
+覆盖:ingest 返回统计、ask 带来源、空库 400 提示、mode 参数、
+护栏拦截注入、语义缓存二次命中(验证 cache_hit 标记)、
+/api/metrics 指标累计。
+注意:业务错误也返回 HTTP 200,靠 ApiResponse.code 区分——
+这是统一信封约定,用例断言 code 而非 status_code。
+"""
 
 from __future__ import annotations
 

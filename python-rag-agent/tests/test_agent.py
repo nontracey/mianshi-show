@@ -1,4 +1,15 @@
-"""Agent 编排单测:验证 Function Calling 工具被调 + 完整 SSE 流 + 追问逻辑。"""
+"""Agent 编排单测:验证 Function Calling 工具被调 + 完整 SSE 流 + 追问逻辑。
+
+测什么:
+1. 工具层:search_knowledge/save_note/execute_tool 的返回结构;
+2. 编排层:retrieve 节点确实通过 Function Calling 触发工具,
+   低分评估触发 followup 追问的条件边;
+3. API 层:/api/agent/session 的空库 400 与 SSE 事件序列。
+
+怎么测:用 conftest 的 ingested fixture(FakeLLM + 内存向量库)
+驱动 AgentOrchestrator 收齐全部事件做断言;API 层用 TestClient,
+SSE 用 stream + 逐行解析 event: 行。全程无真实 LLM 调用。
+"""
 
 from __future__ import annotations
 
@@ -20,6 +31,7 @@ async def test_search_knowledge_tool_returns_docs(ingested):
 
 
 def test_save_note_tool():
+    """save_note 工具应确认保存并返回笔记长度。"""
     res = save_note("学习笔记:volatile 不保证原子性")
     assert res["saved"] is True
     assert res["length"] > 0
