@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
  *
  * <p><b>职责</b>:引导 Spring 容器启动,装配所有 Bean(Controller / Service / 配置类等)。
  *
- * <p><b>技术栈</b>:Spring Boot 3.4 + Spring AI 1.0.0-M4(ChatClient / FunctionCallback / Advisor)
+ * <p><b>技术栈</b>:Spring Boot 3.5.16 + Spring AI 1.1.8(ChatClient / ToolCallback / Advisor)
  * + WebFlux(仅 Agent SSE 端点用)。应用主体是 Spring MVC,只有 /api/agent/session 切到响应式流。
  *
  * <p><b>关键注解</b>:

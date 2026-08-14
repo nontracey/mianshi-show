@@ -9,7 +9,7 @@ namespace DotnetAiService.Services;
 /// 注册到 Kernel 后由 FunctionChoiceBehavior.Auto() 让模型自动决定调用。
 /// <p>search_knowledge 内部把检索结果存 AsyncLocal,供 AgentService 在 LLM 调用后取回 docs。
 /// <p>架构位置:对应 B 项目 app/agent/tools.py(LangChain @tool)、
-/// C 项目 agent/AgentTools.java(Spring AI FunctionCallback)。
+/// C 项目 agent/AgentTools.java(Spring AI ToolCallback)。
 /// 三个工具:search_knowledge(知识检索)、get_scoring_rubric(评分标准查询)、save_note(笔记存档)。
 /// <p>关键设计点:
 /// ① 方法上的 [Description] 与参数 [Description] 会被 SK 编译进工具的 JSON Schema,

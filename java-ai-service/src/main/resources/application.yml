@@ -15,12 +15,6 @@ spring:
   application:
     name: java-ai-service
 
-  # 默认排除 PgVectorStore 自动配置(避免和内存版 VectorStoreService Bean 冲突 + 连 Postgres 失败);
-  # 启用 pgvector 模式时设 app.vector-store=pgvector 并去掉此 exclude(或用 profile)
-  autoconfigure:
-    exclude:
-      - org.springframework.ai.autoconfigure.vectorstore.pgvector.PgVectorStoreAutoConfiguration
-
   ai:
     # Spring AI OpenAI 兼容接入(可指向通义/DeepSeek 等 OpenAI 兼容端点)
     openai:
@@ -34,8 +28,11 @@ spring:
         options:
           model: ${EMBEDDING_MODEL:text-embedding-3-small}  # 向量化模型(维度需与向量库对齐)
 
-    # pgvector 生产向量库(app.vector-store=pgvector 时启用,需配 PG 连接)
+    # Spring AI 1.1.x 通过 spring.ai.vectorstore.type 条件装配向量库。
+    # 与 app.vector-store 共用 VECTOR_STORE，memory 模式不会创建 PgVectorStore，
+    # pgvector 模式则自动装配真实 PgVectorStore 并要求 PostgreSQL 可用。
     vectorstore:
+      type: ${VECTOR_STORE:memory}
       pgvector:
         dimensions: ${PGVECTOR_DIMENSIONS:512}  # 对齐本地 bge-small-zh-v1.5(512维);用 OpenAI embedding-3-small 时设 1536
         index-type: HNSW                        # HNSW 索引:查询快、召回高(百万级以下默认)
@@ -67,6 +64,13 @@ app:
     api-keys: {}
 
 management:
+  # memory 演示不依赖 PostgreSQL/Redis，避免可选依赖让 Actuator 探针误报 DOWN。
+  # 使用真实基础设施时显式设置 DB_HEALTH_ENABLED/REDIS_HEALTH_ENABLED=true。
+  health:
+    db:
+      enabled: ${DB_HEALTH_ENABLED:false}
+    redis:
+      enabled: ${REDIS_HEALTH_ENABLED:false}
   endpoints:
     web:
       exposure:

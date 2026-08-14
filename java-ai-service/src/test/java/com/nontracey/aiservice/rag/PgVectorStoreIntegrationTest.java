@@ -12,6 +12,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -37,13 +38,15 @@ class PgVectorStoreIntegrationTest {
         when(embeddings.embed(any(String.class))).thenReturn(new float[]{1, 0, 0});
         var store = PgVectorStore.builder(new JdbcTemplate(dataSource), embeddings)
                 .dimensions(3).initializeSchema(true).build();
-        var a = new Document("a", "volatile 可见性", Map.of("tenant_id", "a"));
-        var b = new Document("b", "MySQL 索引", Map.of("tenant_id", "b"));
+        var aId = UUID.randomUUID().toString();
+        var bId = UUID.randomUUID().toString();
+        var a = new Document(aId, "volatile 可见性", Map.of("tenant_id", "a"));
+        var b = new Document(bId, "MySQL 索引", Map.of("tenant_id", "b"));
         store.add(List.of(a, b));
         var result = store.similaritySearch(SearchRequest.builder().query("volatile")
                 .topK(10).filterExpression("tenant_id == 'a'").build());
-        assertThat(result).extracting(Document::getId).containsExactly("a");
-        store.delete(List.of("a"));
+        assertThat(result).extracting(Document::getId).containsExactly(aId);
+        store.delete(List.of(aId));
         assertThat(store.similaritySearch(SearchRequest.builder().query("volatile")
                 .topK(10).filterExpression("tenant_id == 'a'").build())).isEmpty();
     }

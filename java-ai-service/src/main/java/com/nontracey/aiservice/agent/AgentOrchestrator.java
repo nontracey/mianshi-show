@@ -49,16 +49,16 @@ public class AgentOrchestrator {
     private final QuestionService questionService;
     private final EvaluatorService evaluatorService;
     private final ChatClient chatClient;
-    /** search_knowledge 工具的 FunctionCallback 封装(retrieve 节点用)。 */
+    /** search_knowledge 工具的 ToolCallback 封装(retrieve 节点用)。 */
     private final ToolCallback searchCallback;
-    /** save_note 工具的 FunctionCallback 封装(advise 节点用)。 */
+    /** save_note 工具的 ToolCallback 封装(advise 节点用)。 */
     private final ToolCallback saveCallback;
 
     /**
-     * 构造编排器,并把 AgentTools 的方法包装成 FunctionCallback。
+     * 构造编排器,并把 AgentTools 的方法包装成 FunctionToolCallback。
      *
-     * <p><b>为什么这样注册</b>:Spring AI M4 还没有 {@code @Tool} 注解(那是 GA 才有的),
-     * 需用 {@code FunctionCallback.builder()} 显式声明:工具名、描述(给 LLM 看的)、
+     * <p><b>为什么这样注册</b>:使用 Spring AI 1.1.x 的 {@link FunctionToolCallback} 显式声明
+     * 工具名、描述(给 LLM 看的)、
      * 实际执行的 lambda、以及 inputType(record)。inputType 用于自动生成 JSON Schema,
      * 让 LLM 知道入参结构。topK 在 lambda 里做 null 兜底(默认 4),避免 LLM 漏传。
      */
@@ -68,7 +68,7 @@ public class AgentOrchestrator {
         this.questionService = questionService;
         this.evaluatorService = evaluatorService;
         this.chatClient = chatClient;
-        // 把 AgentTools 方法包成 FunctionCallback,LLM 可通过 Function Calling 调用
+        // 把 AgentTools 方法包成 ToolCallback,LLM 可通过 Function Calling 调用
         this.searchCallback = FunctionToolCallback.builder("search_knowledge",
                         (AgentTools.SearchKnowledgeInput i) -> tools.searchKnowledge(
                                 i.query(), i.topK() == null ? 4 : i.topK()))
