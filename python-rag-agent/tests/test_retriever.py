@@ -11,12 +11,10 @@ from __future__ import annotations
 
 import pytest
 
-from app.rag.retriever import _rrf_fuse, get_bm25_index, get_retriever
-from app.rag.splitter import Chunk
-from app.rag.store import ScoredDoc
 from app.rag.embedder import Embedder
-from app.rag.store import InMemoryVectorStore
-from app.rag.retriever import Retriever, reset_retriever
+from app.rag.retriever import Retriever, _rrf_fuse, get_bm25_index, reset_retriever
+from app.rag.splitter import Chunk
+from app.rag.store import InMemoryVectorStore, ScoredDoc
 
 
 @pytest.mark.asyncio
@@ -100,9 +98,12 @@ def test_bm25_index_query():
     from app.rag.retriever import BM25Index
 
     idx = BM25Index()
+    # 语料需 ≥3 篇:只有 2 篇时查询词恰好出现在一半文档中,
+    # BM25Okapi 的 IDF=log((2-1+0.5)/(1+0.5))=0,得分全为 0 会被 query 的 s>0 过滤。
     docs = [
         Chunk(text="volatile 保证可见性", metadata={"id": "v"}),
         Chunk(text="MySQL 索引原理", metadata={"id": "m"}),
+        Chunk(text="HTTP 三次握手与四次挥手", metadata={"id": "h"}),
     ]
     idx.build(docs)
     res = idx.query("volatile 可见性", top_k=2)

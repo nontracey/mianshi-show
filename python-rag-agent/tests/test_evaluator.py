@@ -10,9 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.interview import evaluator
-from app.interview.evaluator import _extract_topic_id, _parse_eval, evaluate_answer
 from app.infra.llm import LLMError
+from app.interview.evaluator import _extract_topic_id, _parse_eval, evaluate_answer
 from app.schemas import Evaluation
 
 

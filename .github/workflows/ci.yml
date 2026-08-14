@@ -1,0 +1,38 @@
+name: enterprise-rag-gates
+on:
+  push:
+  pull_request:
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python scripts/contract_smoke.py
+  java:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - run: ./gradlew test --no-daemon
+        working-directory: java-ai-service
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev --locked
+        working-directory: python-rag-agent
+      - run: uv run ruff check app tests
+        working-directory: python-rag-agent
+      - run: uv run pytest -q
+        working-directory: python-rag-agent
+  dotnet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "8.0.x" }
+      - run: dotnet test dotnet-ai-service.Tests/DotnetAiService.Tests.csproj --configuration Release --warnaserror

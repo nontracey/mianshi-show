@@ -8,7 +8,7 @@
 两者都依赖 rag/loader 的 KnowledgeBase 读取 topic 元数据,不自己存储题目/标准。
 """
 
-from app.interview.question_gen import generate_questions
 from app.interview.evaluator import evaluate_answer
+from app.interview.question_gen import generate_questions
 
 __all__ = ["generate_questions", "evaluate_answer"]

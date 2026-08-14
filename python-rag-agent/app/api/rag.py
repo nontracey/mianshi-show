@@ -22,16 +22,15 @@ import time
 from fastapi import APIRouter, Query
 from sse_starlette.sse import EventSourceResponse
 
-from app.config import get_settings
-from app.infra.llm import LLMError, get_llm
+from app.infra.llm import LLMError
 from app.infra.observability import get_metrics, get_trace_id
 from app.rag.embedder import get_embedder
 from app.rag.generator import generate
 from app.rag.loader import load_kb
 from app.rag.retriever import RetrievalResult, get_bm25_index, get_retriever, reset_bm25_index
 from app.rag.splitter import split_topics
-from app.rag.store import get_vector_store, reset_vector_store
-from app.schemas import AskData, AskReq, IngestData, IngestReq, ApiResponse, Source, StreamEvent
+from app.rag.store import get_vector_store
+from app.schemas import ApiResponse, AskData, AskReq, IngestData, IngestReq, Source, StreamEvent
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)

@@ -1427,7 +1427,7 @@ wheels = [
 
 [[package]]
 name = "langgraph"
-version = "1.2.8"
+version = "1.2.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
@@ -1437,9 +1437,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/ad/583fda4c69501390b989770a465ccd0bdab1c1612eba582c012002ddf9b6/langgraph-1.2.8.tar.gz", hash = "sha256:f79d3575f45b404899358976e4fac0294eb75f8df1bfe8cd11286be7539c4548", size = 722464, upload-time = "2026-07-06T20:40:19.487Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/56/0d/c8e7ee98896659e1b6555db0ab115a9ca899844744645d5d894032bab1d7/langgraph-1.2.11.tar.gz", hash = "sha256:9ecfe11e50d338b34b15cf4d8a442642de103e8ae6971320efba84e4542eb363", size = 725753, upload-time = "2026-08-11T14:00:36.945Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/36/49/b958a9963606807e5a20cc75fced14aa77c5cbcc470d5bf8ae13277cd298/langgraph-1.2.8-py3-none-any.whl", hash = "sha256:aa8de1d4df44162353d117589ae0bf6930ca009b62d2d6e26cc32580794c5be6", size = 246983, upload-time = "2026-07-06T20:40:18.242Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/7f/c5c30e4be99ff821029c7ac872a480676bb179c9f3df85ea3f38d13f86d4/langgraph-1.2.11-py3-none-any.whl", hash = "sha256:8bab70de7b2d00b5300fb289bcf38d8b241400f3184c1e95e8ce706fb0e8686b", size = 248854, upload-time = "2026-08-11T14:00:35.494Z" },
 ]
 
 [[package]]
@@ -3249,6 +3249,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "langgraph" },
     { name = "openai" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -3284,7 +3285,6 @@ rag = [
     { name = "langchain" },
     { name = "langchain-core" },
     { name = "langchain-openai" },
-    { name = "langgraph" },
     { name = "rank-bm25" },
 ]
 rerank = [
@@ -3301,7 +3301,7 @@ requires-dist = [
     { name = "langchain", marker = "extra == 'rag'", specifier = ">=0.3.0" },
     { name = "langchain-core", marker = "extra == 'rag'", specifier = ">=0.3.0" },
     { name = "langchain-openai", marker = "extra == 'rag'", specifier = ">=0.1.20" },
-    { name = "langgraph", marker = "extra == 'rag'", specifier = ">=0.2.0" },
+    { name = "langgraph", specifier = "==1.2.11" },
     { name = "openai", specifier = ">=1.40.0" },
     { name = "pgvector", marker = "extra == 'prod'", specifier = ">=0.3" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'prod'", specifier = ">=3.2" },

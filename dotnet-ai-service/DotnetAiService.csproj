@@ -11,10 +11,13 @@
 
   <ItemGroup>
     <!-- Semantic Kernel(1.x):Kernel/ChatCompletion/Embedding + OpenAI 连接器 -->
-    <PackageReference Include="Microsoft.SemanticKernel" Version="1.78.*" />
-    <PackageReference Include="Microsoft.SemanticKernel.Connectors.OpenAI" Version="1.78.*" />
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.79.0" />
+    <PackageReference Include="Microsoft.SemanticKernel.Connectors.OpenAI" Version="1.79.0" />
     <!-- Swagger UI(/docs) -->
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <PackageReference Include="Npgsql" Version="8.0.7" />
+    <PackageReference Include="Pgvector" Version="0.3.2" />
+    <PackageReference Include="StackExchange.Redis" Version="2.8.58" />
   </ItemGroup>
 
 </Project>

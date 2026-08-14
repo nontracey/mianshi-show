@@ -3,9 +3,13 @@ package com.nontracey.aiservice.config;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.reactive.function.client.WebClient;
+import com.nontracey.aiservice.rag.VectorStoreService;
+import java.util.List;
 
 /**
  * Spring AI / HTTP 客户端配置类。
@@ -47,5 +51,21 @@ public class AiConfig {
     @Bean
     public WebClient webClient() {
         return WebClient.builder().build();
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "app.vector-store", havingValue = "memory", matchIfMissing = true)
+    public VectorStore memoryVectorStore(VectorStoreService service) {
+        return new VectorStore() {
+            @Override public void add(List<org.springframework.ai.document.Document> docs) { service.add(docs); }
+            @Override public void delete(List<String> ids) { service.delete(ids); }
+            @Override public void delete(org.springframework.ai.vectorstore.filter.Filter.Expression expression) {
+                throw new UnsupportedOperationException("memory vector store 不支持按表达式删除");
+            }
+            @Override public List<org.springframework.ai.document.Document> similaritySearch(
+                    org.springframework.ai.vectorstore.SearchRequest request) {
+                return service.similaritySearch(request);
+            }
+        };
     }
 }

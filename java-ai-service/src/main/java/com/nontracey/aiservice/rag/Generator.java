@@ -4,7 +4,7 @@ import com.nontracey.aiservice.dto.Dtos.AskData;
 import com.nontracey.aiservice.dto.Dtos.Source;
 import com.nontracey.aiservice.rag.VectorStoreService.ScoredDoc;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.QuestionAnswerAdvisor;
+import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
@@ -52,9 +52,9 @@ public class Generator {
 
     private final ChatClient chatClient;
     /** advisor 模式下作为标准 VectorStore 传给 QuestionAnswerAdvisor。 */
-    private final VectorStoreService vectorStore;
+    private final VectorStore vectorStore;
 
-    public Generator(ChatClient chatClient, VectorStoreService vectorStore) {
+    public Generator(ChatClient chatClient, VectorStore vectorStore) {
         this.chatClient = chatClient;
         this.vectorStore = vectorStore;
     }
@@ -88,10 +88,10 @@ public class Generator {
      */
     public AskData generateWithAdvisor(String question, int topK) {
         // similarityThreshold 设 0.0:不按阈值过滤,完全交给 topK 控制返回数量
-        QuestionAnswerAdvisor advisor = new QuestionAnswerAdvisor(
-                vectorStore,
-                SearchRequest.defaults().withTopK(topK).withSimilarityThreshold(0.0)
-        );
+        QuestionAnswerAdvisor advisor = QuestionAnswerAdvisor.builder(vectorStore)
+                .searchRequest(SearchRequest.builder().query("")
+                        .topK(topK).similarityThresholdAll().build())
+                .build();
         var resp = chatClient.prompt()
                 .system(SYSTEM_ADVISOR)
                 .advisors(advisor)
@@ -99,7 +99,7 @@ public class Generator {
                 .call()
                 .chatResponse();
         String answer = resp == null || resp.getResult() == null ? ""
-                : resp.getResult().getOutput().getContent();
+                : resp.getResult().getOutput().getText();
         return new AskData(answer == null ? "" : answer, List.of(), Map.of());
     }
 

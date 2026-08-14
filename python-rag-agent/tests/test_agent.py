@@ -125,13 +125,15 @@ def test_agent_api_sse_stream(ingested):
     }
     reset_orchestrator()
 
-    with TestClient(app) as c:
-        with c.stream("POST", "/api/agent/session", json={"topic": "java.concurrency.volatile", "rounds": 1}) as r:
-            assert r.status_code == 200
-            event_types = []
-            for line in r.iter_lines():
-                if line.startswith("event:"):
-                    event_types.append(line.split(":", 1)[1].strip())
-            assert "retrieve" in event_types
-            assert "question" in event_types
-            assert "done" in event_types
+    with (
+        TestClient(app) as c,
+        c.stream("POST", "/api/agent/session", json={"topic": "java.concurrency.volatile", "rounds": 1}) as r,
+    ):
+        assert r.status_code == 200
+        event_types = []
+        for line in r.iter_lines():
+            if line.startswith("event:"):
+                event_types.append(line.split(":", 1)[1].strip())
+        assert "retrieve" in event_types
+        assert "question" in event_types
+        assert "done" in event_types

@@ -42,6 +42,7 @@ public class RagService
 {
     private readonly LlmClient _llm;
     private readonly KnowledgeBase _kb;
+    private readonly IVectorRepository _vectors;
     /// <summary>内存向量库:元素是 (chunk, 向量) 元组。
     /// 为什么用 List 元组而不是字典/专业向量库:切块与向量按下标一一对应、追加即入库,
     /// 线性扫描在几百条规模下延迟可忽略,零依赖、易读;换真实向量库只需替换本字段的读写。</summary>
@@ -51,10 +52,11 @@ public class RagService
     /// <summary>最近一次入库产生的全部 chunk(含 metadata)。当前仅供调试观察,无读取方。</summary>
     private List<Chunk> _allChunks = new();
 
-    public RagService(LlmClient llm, KnowledgeBase kb)
+    public RagService(LlmClient llm, KnowledgeBase kb, IVectorRepository vectors)
     {
         _llm = llm;
         _kb = kb;
+        _vectors = vectors;
     }
 
     /// <summary>当前租户在库的 chunk 数。
@@ -65,7 +67,7 @@ public class RagService
         get
         {
             var tenant = TenantContext.CurrentTenant;
-            return _store.Count(e => tenant.Equals(e.chunk.Metadata.GetValueOrDefault("tenant_id")));
+            return _vectors.Count(tenant);
         }
     }
 
@@ -89,6 +91,7 @@ public class RagService
             c.Metadata["tenant_id"] = tenant;
         }
         _allChunks = chunks;
+        await _vectors.ResetAsync(tenant);
         // 清当前租户的旧数据(倒序移除保索引,_store 和 _bm25Tokens 同步)。
         // 倒序遍历的原因:RemoveAt 会让后续元素前移,正序遍历会跳过元素/越界。
         for (int i = _store.Count - 1; i >= 0; i--)
@@ -105,6 +108,7 @@ public class RagService
         {
             var batch = chunks.Skip(i).Take(64).Select(c => c.Text).ToList();
             var embs = await _llm.EmbedAsync(batch);
+            await _vectors.AddAsync(tenant, chunks.Skip(i).Take(batch.Count).ToList(), embs);
             for (int j = 0; j < batch.Count; j++)
             {
                 _store.Add((chunks[i + j], embs[j]));
@@ -251,14 +255,12 @@ public class RagService
     /// <returns>按相关度降序的 chunk 列表;库空时返回空列表。</returns>
     public async Task<List<Chunk>> RetrieveAsync(string query, int topK, string mode)
     {
-        if (_store.Count == 0) return new();
         var tenant = TenantContext.CurrentTenant;
         var qEmb = (await _llm.EmbedAsync(new List<string> { query }))[0];
         var vecK = Math.Max(topK * 2, 8);
         // 向量检索:过滤当前租户(租户隔离读取侧)→ 余弦相似度降序 → 过采样 vecK 条
-        var vec = _store.Where(e => tenant.Equals(e.chunk.Metadata.GetValueOrDefault("tenant_id")))
-                       .Select(e => (e.chunk, score: Cosine(qEmb, e.emb)))
-                       .OrderByDescending(x => x.score).Take(vecK).ToList();
+        var vec = await _vectors.QueryAsync(tenant, qEmb, vecK);
+        if (vec.Count == 0) return new();
 
         if (mode == "vector") return vec.Take(topK).Select(x => x.chunk).ToList();
 

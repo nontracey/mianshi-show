@@ -58,7 +58,7 @@ class Topic:
     raw: dict[str, Any] = None  # type: ignore[assignment]
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Topic":
+    def from_dict(cls, d: dict[str, Any]) -> Topic:
         """从原始 JSON dict 构造 Topic。
 
         原始数据是驼峰命名(如 learningCards),这里映射为下划线字段;

@@ -32,6 +32,7 @@ import os  # noqa: E402
 
 os.environ["KB_CONTENT_URL"] = ""
 os.environ["KB_CONTENT_PATH"] = ""
+os.environ["EMBEDDING_PROVIDER"] = "api"
 
 from app.rag.loader import load_kb_sync, reset_kb  # noqa: E402
 

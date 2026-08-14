@@ -31,7 +31,7 @@ class ApiResponse(BaseModel, Generic[T]):
     traceId: str = ""
 
     @classmethod
-    def ok(cls, data: Any, trace_id: str = "") -> "ApiResponse[Any]":
+    def ok(cls, data: Any, trace_id: str = "") -> ApiResponse[Any]:
         """构造成功封套(code=0)。trace_id 缺省时自动取当前请求的 traceId。"""
         if not trace_id:
             from app.infra.observability import get_trace_id
@@ -40,7 +40,7 @@ class ApiResponse(BaseModel, Generic[T]):
         return cls(code=0, message="ok", data=data, traceId=trace_id)
 
     @classmethod
-    def err(cls, code: int, message: str, trace_id: str = "") -> "ApiResponse[Any]":
+    def err(cls, code: int, message: str, trace_id: str = "") -> ApiResponse[Any]:
         """构造错误封套(code 非 0)。trace_id 缺省时自动取当前请求的 traceId。"""
         if not trace_id:
             from app.infra.observability import get_trace_id
@@ -163,6 +163,7 @@ class AgentSessionReq(BaseModel):
 
     topic: str
     rounds: int = 1
+    session_id: str | None = None
 
 
 # ---------- /api/metrics ----------

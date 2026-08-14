@@ -19,7 +19,6 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -64,6 +63,8 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     rate_limit_per_minute: int = 20
+    allow_anonymous: bool = True
+    api_key_tenants: str = "{}"
 
     # 检索默认参数(深挖可调)
     rag_top_k_vector: int = 8

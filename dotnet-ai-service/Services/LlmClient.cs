@@ -5,6 +5,7 @@ using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 using Microsoft.SemanticKernel.Embeddings;
+using Microsoft.Extensions.AI;
 using OpenAI;
 
 namespace DotnetAiService.Services;
@@ -29,7 +30,7 @@ public class LlmClient
     /// <summary>对话服务(SK 抽象,底层是 Program.cs 注册的 OpenAI Chat Completion)。</summary>
     private readonly IChatCompletionService _chat;
     /// <summary>向量服务(SK 抽象,底层是 Program.cs 注册的 OpenAI Embedding)。</summary>
-    private readonly ITextEmbeddingGenerationService _embed;
+    private readonly IEmbeddingGenerator<string, Embedding<float>> _embed;
     private readonly AppOptions _opts;
 
     /// <summary>构造:从注入的 Kernel 解析出 Chat/Embedding 两个服务句柄。
@@ -39,7 +40,7 @@ public class LlmClient
         _kernel = kernel;
         _opts = opts;
         _chat = kernel.GetRequiredService<IChatCompletionService>();
-        _embed = kernel.GetRequiredService<ITextEmbeddingGenerationService>();
+        _embed = kernel.GetRequiredService<IEmbeddingGenerator<string, Embedding<float>>>();
     }
 
     /** 暴露 Kernel 供 AgentService 注册插件/InvokePromptAsync 用。 */
@@ -56,11 +57,12 @@ public class LlmClient
     /// <returns>(回复正文, usage 字典:prompt_tokens/completion_tokens/total_tokens)。</returns>
     /// <exception cref="Exception">网络/鉴权/模型错误原样上抛,由端点转 503/500。</exception>
     public async Task<(string content, Dictionary<string, object?> usage)> ChatAsync(
-        List<Dictionary<string, string>> messages, double temperature = 0.0)
+        List<Dictionary<string, string>> messages, double temperature = 0.0,
+        CancellationToken ct = default)
     {
         var history = ToChatHistory(messages);
         var settings = new OpenAIPromptExecutionSettings { Temperature = temperature };
-        var resp = await _chat.GetChatMessageContentAsync(history, settings);
+        var resp = await _chat.GetChatMessageContentAsync(history, settings, cancellationToken: ct);
         return (resp.Content ?? "", ExtractUsage(resp));
     }
 
@@ -68,11 +70,11 @@ public class LlmClient
     /// 空列表直接返回空结果,避免无谓的 API 调用。</summary>
     /// <param name="texts">待向量化文本列表(一次请求批量发送,RagService 按 64/批)。</param>
     /// <returns>与输入顺序一致的向量列表。</returns>
-    public async Task<List<float[]>> EmbedAsync(List<string> texts)
+    public async Task<List<float[]>> EmbedAsync(List<string> texts, CancellationToken ct = default)
     {
         if (texts.Count == 0) return new();
-        var embs = await _embed.GenerateEmbeddingsAsync(texts);
-        return embs.Select(e => e.ToArray()).ToList();
+        var embs = await _embed.GenerateAsync(texts, cancellationToken: ct);
+        return embs.Select(e => e.Vector.ToArray()).ToList();
     }
 
     /// <summary>要求模型输出 JSON 的对话变体(评估、重排用)。</summary>

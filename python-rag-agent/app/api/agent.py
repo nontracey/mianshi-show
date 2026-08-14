@@ -17,8 +17,8 @@ from fastapi import APIRouter
 from sse_starlette.sse import EventSourceResponse
 
 from app.agent.graph import get_orchestrator
-from app.config import get_settings
 from app.infra.observability import get_metrics, get_trace_id
+from app.infra.tenant import current_tenant, reset_tenant, set_tenant
 from app.rag.store import get_vector_store
 from app.schemas import AgentSessionReq, ApiResponse
 
@@ -46,13 +46,19 @@ async def agent_session(req: AgentSessionReq):
         )
 
     orchestrator = get_orchestrator()
+    tenant_id = current_tenant()
 
     async def event_gen():
         # 在生成器外先捕获 traceId:SSE 生成器在独立任务中执行,
         # ContextVar 可能不延续,提前取出来供 error 事件引用
         trace_id = get_trace_id()
+        tenant_token = set_tenant(tenant_id)
         try:
-            async for ev in orchestrator.run(req.topic, rounds=req.rounds):
+            async for ev in orchestrator.run(
+                req.topic,
+                rounds=req.rounds,
+                thread_id=f"{tenant_id}:{req.session_id}" if req.session_id else None,
+            ):
                 yield {"event": ev.type, "data": ev.model_dump_json()}
         except Exception as e:
             # 流已开始后任何异常都转成 error 事件(HTTP 状态码已无法更改)
@@ -61,6 +67,7 @@ async def agent_session(req: AgentSessionReq):
                 "data": json.dumps({"error": str(e), "traceId": trace_id}, ensure_ascii=False),
             }
         finally:
+            reset_tenant(tenant_token)
             # 无论正常结束还是异常,都记录本次会话总耗时
             get_metrics().record_request((time.monotonic() - start) * 1000)
 

@@ -1,0 +1,15 @@
+{
+  "$schema": "../contracts/knowledge-manifest.schema.json",
+  "schemaVersion": "1.0.0",
+  "knowledgeBaseId": "mianshi-show",
+  "contentVersion": "2026.07.01-sample",
+  "createdAt": "2026-08-14T00:00:00Z",
+  "documents": [
+    {
+      "documentId": "knowledge-base-sample",
+      "source": "knowledge_base.sample.json",
+      "sha256": "16516934e1d3c74179bbd3ac826764da5ea04a14e74846ac2ee0dd0afcf04789",
+      "deleted": false
+    }
+  ]
+}

@@ -1,127 +1,41 @@
-# 架构与实现总览 · AI 面试陪练服务
+# 架构设计
 
-> 一套「AI 面试陪练」后端能力，用 **Python / Java / .NET** 各实现一遍，**对外 REST 契约完全一致**。
-> 本文说明：整体架构、共享接口契约、真实评测结果、三语言各自的工程亮点、如何本地运行。
+## 共享业务语义
 
----
+仓库内唯一的知识库清单是 `data/knowledge-manifest.json`，对应 Schema 为
+`contracts/knowledge-manifest.schema.json`。清单中的每个文档都记录 SHA-256，
+用于校验内容完整性和版本一致性。
 
-## 1. 它解决什么
+`contracts/api.schema.json` 统一定义引用、用量、错误模型和有序 SSE 事件。
+三种语言可以采用各自生态的实现方式，但应遵循这份共享契约。
 
-一个「主动回忆式」技术面试陪练服务：给定知识点，**检索知识库 → 出题 → 评估回答 → 追问 / 给学习建议**。
-知识内容来自一个公开、版本化的内容源 [`mianshi-zhilian-content`](https://github.com/nontracey/mianshi-zhilian-content)（16 领域、429 个 production 知识点，含讲解卡片、主动回忆题、评分标准 rubric）。
+生产存储必须按租户隔离。服务不信任客户端直接提交的租户标识，而是通过部署配置，
+把不透明的 `X-Api-Key` 映射为可信租户。匿名演示模式统一进入 `default` 租户，
+不得用于生产部署。
 
-配套旗舰产品「面试智练」（Flutter 多端，已上线）里的 AI 评估是**客户端直连模型**做的；本仓库把它重做成**服务端完整 RAG + Agent** 能力，并证明这套能力**不绑语言**。
+## 检索与工作流
 
----
+三种实现均将向量检索和关键词检索分开处理，分别扩大候选集后通过 RRF 融合，
+并允许配置可选的 Reranker。生产 pgvector 配置采用启动失败优先策略：
+配置缺失或装配失败时显式报错，不允许静默回落到内存存储。
 
-## 2. 统一架构（三语言同构）
+Python 使用真实 LangGraph `StateGraph`，包含类型化状态、显式节点、条件边和
+`InMemorySaver` 开发用 checkpoint。Java 使用 Spring AI `ToolCallback` 和显式状态机。
+.NET 使用 Semantic Kernel Plugin，并通过有界 Channel 暴露
+`IAsyncEnumerable`；客户端取消会传播到模型调用。
 
-```
-                 ┌──────────────── 同一套 REST 契约 ────────────────┐
-   HTTP 客户端 → │  /api/ingest   /api/ask   /api/interview/*        │
-                 │  /api/agent/session   /health   /api/metrics      │
-                 └───────────────────────┬──────────────────────────┘
-                                          │
-   ┌──────────────────────────────────────────────────────────────┐
-   │  RAG 链路   loader(manifest驱动) → splitter → embedder          │
-   │             → vector store → 混合检索(向量+BM25+RRF+可选rerank)  │
-   │             → generator(防幻觉 Prompt：仅依据上下文/标注来源)     │
-   │  面试        出题(取知识库 recallPrompts) · LLM-as-judge 评估    │
-   │             (按知识点 rubric 打分, temperature=0 可复现)         │
-   │  Agent       检索 → 出题 → 模拟答 → 评估 → 条件追问 / 学习建议    │
-   │             (Function Calling 工具: 检索/取评分标准/记笔记)      │
-   │  工程化      SSE 流式 · 语义缓存 · 输入护栏(注入检测/PII脱敏)     │
-   │             · 可观测(traceId / token / 命中率 / 延迟)            │
-   └──────────────────────────────────────────────────────────────┘
-```
+## 关键技术决策
 
-**统一响应信封** `ApiResponse<T>`：`{ code, message, data, traceId }`（三语言一致）。
-**统一数据源接入**：manifest 驱动，`KB_CONTENT_URL`（公开源，默认）/ `KB_CONTENT_PATH`（本地）/ 样例数据三层降级，与线上 App 消费同一版本化内容源。
+- Java 采用 Spring Boot 3.5.16 + Spring AI 1.1.8。这是与当前 Java 17 环境兼容的
+  稳定版本线；Spring AI 2.0 对应 Spring Boot 4 / Java 21 开发基线。
+- Java 使用 Spring AI `PgVectorStore`，Python 使用 psycopg/pgvector，
+  .NET 使用 Npgsql/Pgvector。
+- Redis 缓存键应包含租户、知识库及版本、Provider、模型、Prompt/策略版本和查询指纹。
+  现有旧缓存尚未全部迁移到 Redis，因此不能宣称 Redis 缓存已经完整落地。
+- .NET 生产级 resilience pipeline 和三语言完整 OpenTelemetry 导出仍属于后续工作。
 
----
+## 基础设施入口
 
-## 3. 共享 REST 契约
-
-| 方法 | 路径 | 作用 |
-|------|------|------|
-| POST | `/api/ingest` | 加载知识库 → 切分 → 向量化 → 入库 + 建 BM25 索引 |
-| POST | `/api/ask` | RAG 问答（混合检索 + 防幻觉生成，带来源；支持 SSE 流式） |
-| POST | `/api/interview/question` | 按知识点出题（取自人工撰写的主动回忆题） |
-| POST | `/api/interview/evaluate` | LLM-as-judge 按 rubric 结构化评分（温度 0） |
-| POST | `/api/agent/session` | Agent 模拟面试：检索→出题→评估→条件追问 |
-| GET | `/health` · `/api/metrics` | 健康检查 / 累计指标 |
-
----
-
-## 4. 真实评测结果（不是估计，是跑出来的）
-
-**检索质量**：本地 `bge-small-zh-v1.5` 编码，429 知识点语料，两组评测集对比三种检索模式：
-
-| 评测集 | 纯向量 hit_rate | 混合(向量+BM25+RRF) hit_rate |
-|--------|----------------|------------------------------|
-| 常规集（30 题，语义清晰的问答） | 1.00（MRR 0.98） | 1.00（持平） |
-| 难集（15 题，用户口语化/关键词化查询） | **0.87** | **1.00**（MRR 0.83→0.88） |
-
-**结论（诚实呈现）**：语义清晰的问题上纯向量已经足够；但面对**用户真实敲入的短关键词/换词查询**，纯向量会漏，混合检索靠 BM25 把召回从 **87% 拉回 100%**。混合检索的价值**取决于查询类型**——这是用两组评测集测出来的边界，不是拍脑袋。
-（复现见 [`python-rag-agent/benchmarks/report.md`](../python-rag-agent/benchmarks/report.md) 与 `report_hard.md`。指标为自实现的 hit_rate / MRR / context_coverage；RAGAS 库的生成质量指标尚未接入。）
-
-**Agent 行为观察**：真跑发现「同一个模型既当考生又当考官」会自评高分、使多轮追问难以触发——真实产品里考生是人类用户，此问题不存在；这是理解系统边界的一个例子。
-
----
-
-## 5. 三语言各自的工程亮点
-
-| | 栈 | 亮点 |
-|---|---|---|
-| **python-rag-agent** | FastAPI · LangGraph · sentence-transformers | 主项目，全链路 + 评测脚本 + Streamlit demo，60 单测；可切本地 embedding / API |
-| **java-ai-service** | Spring Boot 3 · Spring AI · WebFlux | `ChatClient` + `QuestionAnswerAdvisor` 注入检索、`BeanOutputConverter` 强类型评估、`Flux<ServerSentEvent>` 流式；**纯原生、零第三方业务框架** |
-| **dotnet-ai-service** | .NET 8 · Minimal API | 同契约的 C# 实现，`ApiResponse<T>` 信封 + traceId 中间件；三语言收口 |
-
-三个实现对外接口一致，内部体现不同生态下的 RAG/Agent 工程实践——**团队用什么栈都能落地**。
-
----
-
-## 6. 本地跑起来
-
-三个服务都走 **OpenAI 兼容接口**（`base_url` + `api_key` 可配，支持通义/智谱/DeepSeek/OpenAI/本地模型）。
-
-```bash
-# 项目 B（Python）
-cd python-rag-agent && cp .env.example .env      # 填 OpenAI 兼容 Key
-uv sync && uv run uvicorn app.main:app --reload   # http://127.0.0.1:8000/docs
-uv run python benchmarks/run_ragas.py --compare   # 复现检索评测
-
-# 项目 C（Java）
-cd java-ai-service && ./gradlew bootRun            # http://localhost:8080/docs (Swagger)
-
-# 项目 D（.NET）
-cd dotnet-ai-service && dotnet run                 # http://localhost:5080/health
-```
-
-> **零成本本地运行**：embedding 可用本地 `bge-small-zh-v1.5`（sentence-transformers，免费离线），无需付费 embedding API。C/D 亦可通过一个本地 OpenAI 兼容网关复用同一本地 embedding。
-
----
-
-## 7. 状态与诚实边界
-
-三个实现的能力矩阵(均已端到端真跑验证):
-
-| 能力 | B(Python) | C(Java) | D(.NET) |
-|------|:--:|:--:|:--:|
-| RAG(混合检索 向量+BM25+RRF) | ✅ | ✅ | ✅ |
-| LLM 重排(hybrid_rerank) | ✅ | ✅ | ✅ |
-| LLM-judge 评估 / 出题 | ✅ | ✅ | ✅ |
-| Agent 编排 | ✅ | ✅ | ✅ |
-| SSE 流式 | ✅ | ✅ | ✅ |
-| 语义缓存 | ✅ | ✅ | ✅ |
-| 输入护栏(注入检测/PII) | ✅ | ✅ | ✅ |
-| 可观测(traceId/token/命中率/延迟) | ✅ | ✅ | ✅ |
-| 检索评测(hit_rate/MRR + 生成质量) | ✅ | — | — |
-| 接口文档 | /docs | /docs | /docs |
-
-- **向量库(三档均已真跑验证)**:
-  - **memory**(默认,零依赖):dev/demo,评测与端到端都用它。
-  - **Chroma**(`VECTOR_STORE=chroma`,`--extra rag`):本地文件持久化,已验证跨进程持久化(重启数据不丢)。
-  - **pgvector**(`VECTOR_STORE=pgvector` + `PGVECTOR_URL`):生产级,已连真实 Postgres 17 + pgvector 0.8.0 验证 add / `<=>` cosine 检索 / count / 跨进程持久化。
-  - 任一后端连不上时自动降级到内存,不影响启动;连接串走环境变量,**不入库**。
-- 检索评测(两评测集 + RAGAS 风格生成质量指标)目前在 B 侧;C/D 复用同一评测结论。
+`docker-compose.yml` 用于启动 pgvector 和 Redis。
+数据库对象统一定义在 `db/migration/V001__enterprise_rag.sql`。
+当前阶段无需启动外部环境；配置连接参数后即可执行对应集成测试。

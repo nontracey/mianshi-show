@@ -19,10 +19,10 @@ from fastapi import APIRouter
 from app.infra.observability import get_metrics, get_trace_id
 from app.interview import evaluate_answer, generate_questions
 from app.schemas import (
+    ApiResponse,
     EvaluateData,
     EvaluateReq,
     Evaluation,
-    ApiResponse,
     QuestionData,
     QuestionReq,
 )
@@ -61,9 +61,8 @@ async def evaluate(req: EvaluateReq) -> ApiResponse[EvaluateData]:
 
     guard = detect_prompt_injection(req.user_answer)
     if guard.blocked:
-        from app.infra.observability import get_trace_id as _tid
-
         from app.infra.observability import get_metrics as _m
+        from app.infra.observability import get_trace_id as _tid
         _m().record_request((time.monotonic() - start) * 1000)
         return ApiResponse.err(code=400, message=f"输入被拒:{guard.reason}", trace_id=_tid())
 

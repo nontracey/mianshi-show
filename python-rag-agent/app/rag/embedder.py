@@ -104,7 +104,7 @@ class Embedder:
             if miss_idx:
                 miss_texts = [batch[j] for j in miss_idx]
                 embs = await self._embed_raw(miss_texts)
-                for j, e in zip(miss_idx, embs):
+                for j, e in zip(miss_idx, embs, strict=True):
                     self._cache[batch[j]] = e
             for t in batch:
                 out.append(self._cache[t])

@@ -1,6 +1,7 @@
 package com.nontracey.aiservice.agent;
 
 import com.nontracey.aiservice.dto.Dtos;
+import com.nontracey.aiservice.common.TenantContext;
 import com.nontracey.aiservice.dto.Dtos.Evaluation;
 import com.nontracey.aiservice.dto.Dtos.Question;
 import com.nontracey.aiservice.dto.StreamEvent;
@@ -10,7 +11,8 @@ import com.nontracey.aiservice.rag.VectorStoreService.ScoredDoc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.model.function.FunctionCallback;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.function.FunctionToolCallback;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
@@ -27,7 +29,7 @@ import java.util.*;
  *
  * <p><b>两种调用 LLM 的方式</b>:
  * <ul>
- *   <li>retrieve / advise 节点用 Spring AI {@link FunctionCallback} 把工具暴露给 LLM,由 LLM 通过
+ *   <li>retrieve / advise 节点用 Spring AI {@link ToolCallback} 把工具暴露给 LLM,由 LLM 通过
  *       Function Calling 自主决定调用(展示 SpringAI 工具机制);因 Function Calling 有不确定性,
  *       两处都带显式兜底(LLM 没调工具时代码直接调)。</li>
  *   <li>ask / simulate / evaluate 走显式编排(流程固定,直接调用对应 Service)。</li>
@@ -48,9 +50,9 @@ public class AgentOrchestrator {
     private final EvaluatorService evaluatorService;
     private final ChatClient chatClient;
     /** search_knowledge 工具的 FunctionCallback 封装(retrieve 节点用)。 */
-    private final FunctionCallback searchCallback;
+    private final ToolCallback searchCallback;
     /** save_note 工具的 FunctionCallback 封装(advise 节点用)。 */
-    private final FunctionCallback saveCallback;
+    private final ToolCallback saveCallback;
 
     /**
      * 构造编排器,并把 AgentTools 的方法包装成 FunctionCallback。
@@ -67,17 +69,15 @@ public class AgentOrchestrator {
         this.evaluatorService = evaluatorService;
         this.chatClient = chatClient;
         // 把 AgentTools 方法包成 FunctionCallback,LLM 可通过 Function Calling 调用
-        this.searchCallback = FunctionCallback.builder()
-                .description("检索面试知识库,返回与 query 相关的知识条目")
-                .function("search_knowledge",
+        this.searchCallback = FunctionToolCallback.builder("search_knowledge",
                         (AgentTools.SearchKnowledgeInput i) -> tools.searchKnowledge(
                                 i.query(), i.topK() == null ? 4 : i.topK()))
+                .description("检索面试知识库,返回与 query 相关的知识条目")
                 .inputType(AgentTools.SearchKnowledgeInput.class)
                 .build();
-        this.saveCallback = FunctionCallback.builder()
-                .description("记一条学习笔记到本地")
-                .function("save_note",
+        this.saveCallback = FunctionToolCallback.builder("save_note",
                         (AgentTools.SaveNoteInput i) -> tools.saveNote(i.text()))
+                .description("记一条学习笔记到本地")
                 .inputType(AgentTools.SaveNoteInput.class)
                 .build();
     }
@@ -97,17 +97,20 @@ public class AgentOrchestrator {
      */
     public Flux<StreamEvent> runFlux(String topic, int rounds) {
         int actualRounds = Math.max(1, rounds);
+        String tenant = TenantContext.get();
         return Flux.create(sink -> {
             // 独立线程承载阻塞编排,事件经 sink 逐个推入响应式流
-            Thread worker = new Thread(() -> {
+            Thread worker = new Thread(() -> TenantContext.runAs(tenant, () -> {
                 try {
                     runInternal(topic, actualRounds, sink);
                     sink.complete();
                 } catch (Exception e) {
                     sink.error(e);
                 }
-            }, "agent-orchestrator");
+            }), "agent-orchestrator");
             worker.setDaemon(true);
+            sink.onCancel(worker::interrupt);
+            sink.onDispose(worker::interrupt);
             worker.start();
         });
     }
@@ -133,7 +136,7 @@ public class AgentOrchestrator {
                     .system(s -> s.text("你是技术面试官。请调用 search_knowledge 工具检索 topic:" + topic
                             + " 的知识(query=" + topic + ", topK=4),了解重点后再出题。"))
                     .user("开始检索。")
-                    .functions(searchCallback)
+                    .toolCallbacks(searchCallback)
                     .call()
                     .content();
             // 工具返回值只回给 LLM,编排器从 ThreadLocal 旁路取回真正的 docs
@@ -161,6 +164,7 @@ public class AgentOrchestrator {
         Evaluation lastEval = null;
         // 多轮问答循环:每轮 ask -> simulate -> evaluate -> decide
         while (round < rounds) {
+            if (sink.isCancelled() || Thread.currentThread().isInterrupted()) return;
             round++;
             // 2. ask:为该 topic 出一道题(难度不过滤,取第一道)
             Dtos.QuestionData qd = questionService.generate(topic, null, 1);
@@ -225,7 +229,7 @@ public class AgentOrchestrator {
                 advice = chatClient.prompt()
                         .system(systemText)
                         .user("请给建议并保存。")
-                        .functions(saveCallback)
+                        .toolCallbacks(saveCallback)
                         .call()
                         .content();
                 if (advice == null) advice = "";

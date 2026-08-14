@@ -1,7 +1,7 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '3.4.0'
-    id 'io.spring.dependency-management' version '1.1.6'
+    id 'org.springframework.boot' version '3.5.16'
+    id 'io.spring.dependency-management' version '1.1.7'
 }
 
 group = 'com.nontracey'
@@ -14,18 +14,11 @@ java {
 }
 
 repositories {
-    // 国内源优先(阿里云代理 maven central / spring releases)
-    maven { url 'https://maven.aliyun.com/repository/public' }
-    maven { url 'https://maven.aliyun.com/repository/spring' }
-    maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
-    // 阿里云不代理 spring milestone,必须保留官方源(Spring AI 1.0.0-M4 在这)
-    maven { url 'https://repo.spring.io/milestone' }
-    // 兜底
     mavenCentral()
 }
 
 ext {
-    springAiVersion = '1.0.0-M4'
+    springAiVersion = '1.1.8'
 }
 
 dependencies {
@@ -33,12 +26,15 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-webflux'  // SSE / Flux
     implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 
     // Spring AI(OpenAI 兼容,可切通义/DeepSeek)
-    implementation 'org.springframework.ai:spring-ai-openai-spring-boot-starter'
+    implementation 'org.springframework.ai:spring-ai-starter-model-openai'
+    implementation 'org.springframework.ai:spring-ai-advisors-vector-store'
 
     // pgvector 生产向量库(可选:app.vector-store=pgvector 时启用)
-    implementation 'org.springframework.ai:spring-ai-pgvector-store-spring-boot-starter'
+    implementation 'org.springframework.ai:spring-ai-starter-vector-store-pgvector'
     runtimeOnly 'org.postgresql:postgresql'
 
     // Swagger UI
@@ -57,6 +53,8 @@ dependencies {
     // Test
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'io.projectreactor:reactor-test'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
 }
 
 dependencyManagement {

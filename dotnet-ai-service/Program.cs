@@ -51,10 +51,10 @@ builder.Services.AddSingleton<Kernel>(sp =>
         new ApiKeyCredential(opts.OpenAI.ApiKey),
         new OpenAIClientOptions { Endpoint = new Uri(opts.OpenAI.BaseUrl.TrimEnd('/')) });
     var kb = Kernel.CreateBuilder();
-#pragma warning disable SKEXP0001  // AddOpenAITextEmbeddingGeneration 是 experimental
     kb.AddOpenAIChatCompletion(opts.OpenAI.ChatModel, openAIClient);
-    kb.AddOpenAITextEmbeddingGeneration(opts.OpenAI.EmbeddingModel, openAIClient);
-#pragma warning restore SKEXP0001
+#pragma warning disable SKEXP0010
+    kb.AddOpenAIEmbeddingGenerator(opts.OpenAI.EmbeddingModel, openAIClient);
+#pragma warning restore SKEXP0010
     return kb.Build();
 });
 
@@ -67,6 +67,13 @@ builder.Services.AddSingleton<AgentPlugin>();  // [KernelFunction] 工具,供 Ag
 builder.Services.AddSingleton<AgentService>();
 builder.Services.AddSingleton<Metrics>();
 builder.Services.AddSingleton<SemanticCache>();
+builder.Services.AddSingleton<IVectorRepository>(sp =>
+{
+    var options = sp.GetRequiredService<AppOptions>();
+    return options.VectorStore.Equals("pgvector", StringComparison.OrdinalIgnoreCase)
+        ? new PgVectorRepository(options.PgVectorConnectionString, options.EmbeddingDimensions)
+        : new MemoryVectorRepository();
+});
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -268,15 +275,27 @@ app.MapGet("/api/metrics", (Metrics metrics) =>
 // POST /api/agent/session —— Agent 模拟面试:跑完整状态机
 // retrieve → ask → simulate → evaluate → decide(followup?) → advise,一次性返回事件列表。
 // 前置条件与 /api/ask 相同:向量库必须已入库。请求体 AgentSessionReq:{topic, rounds}。
-app.MapPost("/api/agent/session", async (AgentService agent, RagService rag, AgentSessionReq req) =>
+app.MapPost("/api/agent/session", async (HttpContext ctx, AgentService agent, RagService rag, AgentSessionReq req) =>
 {
     if (rag.ChunkCount == 0)
         return Results.Json(ApiResponse<object>.Err(400, "向量库为空,请先 POST /api/ingest", TraceIdMiddleware.CurrentTraceId), JsonOptions.Default);
     try
     {
-        // rounds 缺省/0 时兜底 1 轮
-        var events = await agent.RunAsync(req.topic, req.rounds == 0 ? 1 : req.rounds);
-        return Results.Json(ApiResponse<object>.Ok(new { events }, TraceIdMiddleware.CurrentTraceId), JsonOptions.Default);
+        ctx.Response.ContentType = "text/event-stream";
+        await foreach (var evt in agent.RunStreamAsync(
+            req.topic, req.rounds == 0 ? 1 : req.rounds, ctx.RequestAborted))
+        {
+            var type = evt["type"]?.ToString() ?? "message";
+            await ctx.Response.WriteAsync(
+                $"event: {type}\ndata: {JsonSerializer.Serialize(evt, JsonOptions.Default)}\n\n",
+                ctx.RequestAborted);
+            await ctx.Response.Body.FlushAsync(ctx.RequestAborted);
+        }
+        return Results.Empty;
+    }
+    catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested)
+    {
+        return Results.Empty;
     }
     catch (Exception e)
     {

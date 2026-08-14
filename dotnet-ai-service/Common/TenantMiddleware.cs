@@ -49,10 +49,21 @@ public class TenantMiddleware
 
     /// <summary>每请求:解析租户头 → 写入 TenantContext(AsyncLocal)和 HttpContext.Items →
     /// 执行后续管道 → finally 清空 AsyncLocal。</summary>
-    public async Task InvokeAsync(HttpContext ctx)
+    public async Task InvokeAsync(HttpContext ctx, AppOptions options)
     {
-        var tenant = ctx.Request.Headers[TenantHeader].FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(tenant)) tenant = TenantContext.DefaultTenant;
+        var credential = ctx.Request.Headers["X-Api-Key"].FirstOrDefault();
+        var tenant = credential != null
+            && options.Security.ApiKeys.TryGetValue(credential, out var mapped) ? mapped : null;
+        if (tenant == null && !options.Security.AllowAnonymous)
+        {
+            ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await ctx.Response.WriteAsJsonAsync(new {
+                code = 401, message = "missing or invalid credential", data = (object?)null,
+                traceId = TraceIdMiddleware.CurrentTraceId
+            });
+            return;
+        }
+        tenant ??= TenantContext.DefaultTenant;
         TenantContext.CurrentTenant = tenant;
         ctx.Items["TenantId"] = tenant;
         try

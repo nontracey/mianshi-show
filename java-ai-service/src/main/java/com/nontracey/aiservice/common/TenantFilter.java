@@ -6,6 +6,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import com.nontracey.aiservice.config.SecurityProperties;
 import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -36,6 +38,11 @@ public class TenantFilter implements Filter {
     public static final String TENANT_HEADER = "X-Tenant-Id";
     /** 写入 MDC 的 key,供日志 pattern 打印租户。 */
     private static final String MDC_KEY = "tenantId";
+    private final SecurityProperties security;
+
+    public TenantFilter(SecurityProperties security) {
+        this.security = security;
+    }
 
     /**
      * 解析租户 -> 写入上下文与 MDC -> 放行 -> 清理。
@@ -50,7 +57,12 @@ public class TenantFilter implements Filter {
         // 仅 HTTP 请求才有 header;读取租户,缺省回退 default
         String tenant = null;
         if (req instanceof HttpServletRequest http) {
-            tenant = http.getHeader(TENANT_HEADER);
+            String credential = http.getHeader("X-Api-Key");
+            tenant = credential == null ? null : security.apiKeys().get(credential);
+            if (tenant == null && !security.allowAnonymous()) {
+                ((HttpServletResponse) resp).sendError(401, "missing or invalid credential");
+                return;
+            }
         }
         if (tenant == null || tenant.isBlank()) tenant = TenantContext.DEFAULT_TENANT;
         // 写入 ThreadLocal(业务用)与 MDC(日志用)

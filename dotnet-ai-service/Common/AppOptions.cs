@@ -15,9 +15,19 @@ public class AppOptions
     /// <summary>向量库实现标识。当前只实现了 "memory"(进程内 List 线性扫描),
     /// 预留字段,与 B/C 的 vector_store 配置对应;生产可换 Milvus/Qdrant 等。</summary>
     public string VectorStore { get; set; } = "memory";
+    public string PgVectorConnectionString { get; set; } = "";
+    public int EmbeddingDimensions { get; set; } = 1536;
+    public string RedisConnectionString { get; set; } = "";
 
     /// <summary>每租户每分钟请求上限(RateLimitMiddleware 用),超限返回 429。默认 20。</summary>
     public int RateLimitPerMinute { get; set; } = 20;
+    public SecurityOptions Security { get; set; } = new();
+
+    public class SecurityOptions
+    {
+        public bool AllowAnonymous { get; set; } = true;
+        public Dictionary<string, string> ApiKeys { get; set; } = new();
+    }
 
     /// <summary>OpenAI 兼容端点配置(Chat + Embedding 共用),见 <see cref="OpenAiOptions"/>。</summary>
     public OpenAiOptions OpenAI { get; set; } = new();

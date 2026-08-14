@@ -102,7 +102,7 @@ def _cosine(a: list[float], b: list[float]) -> float:
     """余弦相似度;零向量返回 0(避免除零)。"""
     import math
 
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     na = sum(x * x for x in a)
     nb = sum(y * y for y in b)
     if na == 0.0 or nb == 0.0:

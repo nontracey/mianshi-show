@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 from app.rag.loader import get_kb
-from app.rag.splitter import split_topic, split_topics, _split_recursive
+from app.rag.splitter import _split_recursive, split_topic, split_topics
 
 
 def test_split_recursive_short_text_kept_whole():

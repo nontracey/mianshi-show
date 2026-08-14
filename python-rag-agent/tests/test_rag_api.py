@@ -90,8 +90,6 @@ def test_ask_cache_hit_on_same_question(client, mock_stack):
     # 第一次:miss,调 LLM
     r1 = client.post("/api/ask", json={"question": "volatile 保证原子性吗?"})
     assert r1.json()["code"] == 0
-    calls_before = mock_stack._embed_calls
-
     # 第二次:相同问题,应命中缓存(embed 会调,但 chat 不调)
     r2 = client.post("/api/ask", json={"question": "volatile 保证原子性吗?"})
     assert r2.json()["code"] == 0

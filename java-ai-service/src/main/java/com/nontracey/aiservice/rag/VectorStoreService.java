@@ -1,11 +1,14 @@
 package com.nontracey.aiservice.rag;
 
 import com.nontracey.aiservice.common.TenantContext;
+import com.nontracey.aiservice.config.AppProperties;
 import com.nontracey.aiservice.rag.Splitter.Chunk;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -36,18 +39,36 @@ import java.util.UUID;
  * <p><b>同构映射</b>:对应 B 项目 {@code app/rag/store.py}。
  */
 @Service
-public class VectorStoreService implements VectorStore {
+public class VectorStoreService {
 
     /** metadata 中标识租户的 key。 */
     public static final String TENANT_META_KEY = "tenant_id";
 
     /** 由 Spring AI OpenAI starter 自动装配的向量化模型。 */
     private final EmbeddingModel embeddingModel;
+    private final AppProperties properties;
+    private final ObjectProvider<VectorStore> vectorStores;
+    private final ObjectProvider<JdbcTemplate> jdbcTemplates;
     /** 内存存储:chunk + 对应 SpringAI Document + 预计算的 embedding。 */
     private final List<Entry> store = new ArrayList<>();
 
-    public VectorStoreService(EmbeddingModel embeddingModel) {
+    public VectorStoreService(EmbeddingModel embeddingModel, AppProperties properties,
+                              ObjectProvider<VectorStore> vectorStores,
+                              ObjectProvider<JdbcTemplate> jdbcTemplates) {
         this.embeddingModel = embeddingModel;
+        this.properties = properties;
+        this.vectorStores = vectorStores;
+        this.jdbcTemplates = jdbcTemplates;
+    }
+
+    private boolean pgvector() {
+        return "pgvector".equalsIgnoreCase(properties.vectorStore());
+    }
+
+    private VectorStore backend() {
+        VectorStore store = vectorStores.getIfAvailable();
+        if (store == null) throw new IllegalStateException("pgvector 模式未装配 VectorStore");
+        return store;
     }
 
     // ---------- Spring AI VectorStore 接口(供 QuestionAnswerAdvisor 用) ----------
@@ -59,16 +80,24 @@ public class VectorStoreService implements VectorStore {
      *
      * @param documents 待入库文档
      */
-    @Override
     public void add(List<Document> documents) {
+        if (pgvector()) {
+            String tenant = TenantContext.get();
+            backend().add(documents.stream().map(d -> {
+                Map<String, Object> meta = new HashMap<>(d.getMetadata());
+                meta.put(TENANT_META_KEY, tenant);
+                return new Document(d.getId(), d.getText(), meta);
+            }).toList());
+            return;
+        }
         synchronized (this) {
             String tenant = TenantContext.get();
             for (Document d : documents) {
                 // 复制 metadata 并打上租户标记,避免污染调用方原始对象
                 Map<String, Object> meta = new HashMap<>(d.getMetadata());
                 meta.put(TENANT_META_KEY, tenant);
-                float[] emb = embeddingModel.embed(d.getContent());
-                store.add(new Entry(new Chunk(d.getContent(), meta), d, toDouble(emb)));
+                float[] emb = embeddingModel.embed(d.getText());
+                store.add(new Entry(new Chunk(d.getText(), meta), d, toDouble(emb)));
             }
         }
     }
@@ -79,12 +108,13 @@ public class VectorStoreService implements VectorStore {
      * @param idList 待删除的 document id 列表
      * @return 是否有实际删除发生
      */
-    @Override
-    public Optional<Boolean> delete(List<String> idList) {
+    public void delete(List<String> idList) {
+        if (pgvector()) {
+            backend().delete(idList);
+            return;
+        }
         synchronized (this) {
-            int before = store.size();
             store.removeIf(e -> idList.contains(e.document.getId()));
-            return Optional.of(store.size() < before);
         }
     }
 
@@ -96,8 +126,15 @@ public class VectorStoreService implements VectorStore {
      * @param request 检索请求(query / topK / similarityThreshold)
      * @return 命中的 Document 列表(仅当前租户)
      */
-    @Override
     public List<Document> similaritySearch(SearchRequest request) {
+        if (pgvector()) {
+            String tenant = TenantContext.get().replace("'", "''");
+            SearchRequest scoped = SearchRequest.builder()
+                    .query(request.getQuery()).topK(request.getTopK())
+                    .similarityThreshold(request.getSimilarityThreshold())
+                    .filterExpression(TENANT_META_KEY + " == '" + tenant + "'").build();
+            return backend().similaritySearch(scoped);
+        }
         if (store.isEmpty()) return List.of();
         String tenant = TenantContext.get();
         float[] q = embeddingModel.embed(request.getQuery());
@@ -123,6 +160,16 @@ public class VectorStoreService implements VectorStore {
     public synchronized void addChunks(List<Chunk> chunks) {
         if (chunks.isEmpty()) return;
         String tenant = TenantContext.get();
+        if (pgvector()) {
+            List<Document> docs = chunks.stream().map(c -> {
+                Map<String, Object> meta = new HashMap<>(c.metadata());
+                meta.put(TENANT_META_KEY, tenant);
+                String id = String.valueOf(meta.getOrDefault("chunk_id", UUID.randomUUID().toString()));
+                return new Document(id, c.text(), meta);
+            }).toList();
+            backend().add(docs);
+            return;
+        }
         for (Chunk c : chunks) {
             // 复制 metadata 并打上租户标记,供后续按租户过滤
             Map<String, Object> meta = new HashMap<>(c.metadata());
@@ -143,6 +190,13 @@ public class VectorStoreService implements VectorStore {
      * @return 带分数的 chunk 列表(仅当前租户,按分数降序)
      */
     public List<ScoredDoc> query(String question, int topK) {
+        if (pgvector()) {
+            SearchRequest request = SearchRequest.builder().query(question).topK(topK)
+                    .similarityThreshold(SearchRequest.SIMILARITY_THRESHOLD_ACCEPT_ALL).build();
+            return similaritySearch(request).stream().map(d -> new ScoredDoc(
+                    new Chunk(d.getText(), d.getMetadata()), d.getScore() == null ? 0.0 : d.getScore()
+            )).toList();
+        }
         if (store.isEmpty()) return List.of();
         String tenant = TenantContext.get();
         float[] q = embeddingModel.embed(question);
@@ -158,12 +212,26 @@ public class VectorStoreService implements VectorStore {
     /** 清空当前租户的全部向量(ingest 重建前调用),不影响其他租户。 */
     public synchronized void reset() {
         String tenant = TenantContext.get();
+        if (pgvector()) {
+            JdbcTemplate jdbc = jdbcTemplates.getIfAvailable();
+            if (jdbc == null) throw new IllegalStateException("pgvector 模式未装配 JdbcTemplate");
+            jdbc.update("DELETE FROM vector_store WHERE metadata ->> ? = ?", TENANT_META_KEY, tenant);
+            return;
+        }
         store.removeIf(e -> tenant.equals(e.chunk.metadata().get(TENANT_META_KEY)));
     }
 
     /** 当前租户的向量条数(用于判断向量库是否为空)。 */
     public int count() {
         String tenant = TenantContext.get();
+        if (pgvector()) {
+            JdbcTemplate jdbc = jdbcTemplates.getIfAvailable();
+            if (jdbc == null) return 0;
+            Integer count = jdbc.queryForObject(
+                    "SELECT count(*) FROM vector_store WHERE metadata ->> ? = ?",
+                    Integer.class, TENANT_META_KEY, tenant);
+            return count == null ? 0 : count;
+        }
         return (int) store.stream()
                 .filter(e -> tenant.equals(e.chunk.metadata().get(TENANT_META_KEY)))
                 .count();

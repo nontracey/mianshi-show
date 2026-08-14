@@ -18,12 +18,14 @@ InMemory 版刻意不依赖 numpy/chroma,保证网络受限也能跑通。
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
+from app.infra.tenant import current_tenant
 from app.rag.splitter import Chunk
 
 logger = logging.getLogger(__name__)
@@ -69,7 +71,7 @@ def _cosine(a: list[float], b: list[float]) -> float:
     dot = 0.0
     na = 0.0
     nb = 0.0
-    for x, y in zip(a, b):
+    for x, y in zip(a, b, strict=False):
         dot += x * y
         na += x * x
         nb += y * y
@@ -92,27 +94,31 @@ class InMemoryVectorStore(VectorStore):
         """批量写入。chunks 与 embeddings 数量必须一致,否则抛 ValueError。"""
         if len(chunks) != len(embeddings):
             raise ValueError(f"chunks({len(chunks)}) 与 embeddings({len(embeddings)}) 数量不一致")
-        for c, e in zip(chunks, embeddings):
-            self._docs.append((c, e))
+        for c, e in zip(chunks, embeddings, strict=True):
+            metadata = {**c.metadata, "tenant_id": current_tenant()}
+            self._docs.append((Chunk(text=c.text, metadata=metadata), e))
 
     async def query(self, embedding: list[float], top_k: int = 4) -> list[ScoredDoc]:
         """全量计算 cosine 相似度,降序取前 top_k。空库返回空列表。"""
         if not self._docs:
             return []
+        tenant = current_tenant()
         scored = [
             ScoredDoc(text=c.text, metadata=c.metadata, score=_cosine(embedding, e))
-            for c, e in self._docs
+            for c, e in self._docs if c.metadata.get("tenant_id") == tenant
         ]
         scored.sort(key=lambda x: x.score, reverse=True)
         return scored[:top_k]
 
     def count(self) -> int:
         """库中文档数。"""
-        return len(self._docs)
+        tenant = current_tenant()
+        return sum(1 for c, _ in self._docs if c.metadata.get("tenant_id") == tenant)
 
     async def reset(self) -> None:
         """清空所有文档。"""
-        self._docs.clear()
+        tenant = current_tenant()
+        self._docs = [(c, e) for c, e in self._docs if c.metadata.get("tenant_id") != tenant]
 
 
 class ChromaVectorStore(VectorStore):
@@ -163,7 +169,7 @@ class ChromaVectorStore(VectorStore):
         metas = res.get("metadatas", [[]])[0]
         dists = res.get("distances", [[]])[0]
         out: list[ScoredDoc] = []
-        for d, m, dist in zip(docs, metas, dists):
+        for d, m, dist in zip(docs, metas, dists, strict=True):
             # chroma 返回的是距离,转相似度(1 - dist/2 近似 cosine)
             score = 1.0 - dist / 2.0 if dist else 0.0
             out.append(ScoredDoc(text=d, metadata=m or {}, score=score))
@@ -210,32 +216,47 @@ class PgVectorStore(VectorStore):
 
     async def add(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
         """逐条插入。metadata 序列化为 jsonb 存储。"""
-        import json
+        await asyncio.to_thread(self._add_sync, chunks, embeddings, current_tenant())
 
+    def _add_sync(self, chunks: list[Chunk], embeddings: list[list[float]], tenant: str) -> None:
+        import json
         with self._conn.cursor() as cur:
-            for c, e in zip(chunks, embeddings):
+            for c, e in zip(chunks, embeddings, strict=True):
+                metadata = {**c.metadata, "tenant_id": tenant}
                 cur.execute(
                     f"INSERT INTO {self._table}(text, metadata, embedding) VALUES (%s, %s, %s)",
-                    (c.text, json.dumps(c.metadata), e),
+                    (c.text, json.dumps(metadata), e),
                 )
 
     async def query(self, embedding: list[float], top_k: int = 4) -> list[ScoredDoc]:
         """按 `<=>` cosine 距离升序取 top_k,并把距离换算为相似度返回。"""
         # pgvector `<=>` 是 cosine 距离;相似度 = 1 - 距离
-        rows = self._conn.execute(
-            f"SELECT text, metadata, 1 - (embedding <=> %s::vector) AS score "
-            f"FROM {self._table} ORDER BY embedding <=> %s::vector LIMIT %s",
-            (embedding, embedding, top_k),
-        ).fetchall()
+        rows = await asyncio.to_thread(self._query_sync, embedding, top_k, current_tenant())
         return [ScoredDoc(text=r[0], metadata=r[1], score=float(r[2])) for r in rows]
+
+    def _query_sync(self, embedding: list[float], top_k: int, tenant: str):
+        return self._conn.execute(
+            f"SELECT text, metadata, 1 - (embedding <=> %s::vector) AS score "
+            f"FROM {self._table} WHERE metadata->>'tenant_id' = %s "
+            f"ORDER BY embedding <=> %s::vector LIMIT %s",
+            (embedding, tenant, embedding, top_k),
+        ).fetchall()
 
     def count(self) -> int:
         """表中行数。"""
-        return self._conn.execute(f"SELECT count(*) FROM {self._table}").fetchone()[0]
+        return self._conn.execute(
+            f"SELECT count(*) FROM {self._table} WHERE metadata->>'tenant_id' = %s",
+            (current_tenant(),),
+        ).fetchone()[0]
 
     async def reset(self) -> None:
         """TRUNCATE 清空全表(比 DELETE 快)。"""
-        self._conn.execute(f"TRUNCATE {self._table}")
+        tenant = current_tenant()
+        await asyncio.to_thread(
+            self._conn.execute,
+            f"DELETE FROM {self._table} WHERE metadata->>'tenant_id' = %s",
+            (tenant,),
+        )
 
 
 _store: VectorStore | None = None
@@ -243,7 +264,7 @@ _store: VectorStore | None = None
 
 def get_vector_store() -> VectorStore:
     """单例向量库。按 VECTOR_STORE 切换:memory(默认)/ chroma / pgvector。
-    任一后端不可用(缺依赖/连不上 DB)时降级到 memory,保证服务可启动。"""
+    Production backends fail fast: a pgvector configuration must never silently use memory."""
     global _store
     if _store is not None:
         return _store
@@ -255,15 +276,9 @@ def get_vector_store() -> VectorStore:
     elif vs == "pgvector":
         if not s.pgvector_url:
             # 配了 pgvector 但没给连接串,无法连接,降级 memory。
-            logger.warning("VECTOR_STORE=pgvector 但未配 PGVECTOR_URL,降级到 memory")
-            _store = InMemoryVectorStore()
+            raise RuntimeError("VECTOR_STORE=pgvector 时必须配置 PGVECTOR_URL")
         else:
-            try:
-                _store = PgVectorStore(dsn=s.pgvector_url)
-            except Exception as e:
-                # 连接/建表失败(如 DB 未起),降级 memory 保证可启动。
-                logger.warning("pgvector 初始化失败(%s),降级到 memory", e)
-                _store = InMemoryVectorStore()
+            _store = PgVectorStore(dsn=s.pgvector_url)
     else:
         _store = InMemoryVectorStore()
     return _store

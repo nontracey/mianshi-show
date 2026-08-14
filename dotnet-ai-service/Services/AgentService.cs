@@ -2,6 +2,8 @@ using System.Text.Json;
 using DotnetAiService.Common;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
+using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 
 namespace DotnetAiService.Services;
 
@@ -53,10 +55,18 @@ public class AgentService
     /// <param name="topic">面试主题(topic id 或关键词,用于检索与出题)。</param>
     /// <param name="rounds">期望面试轮数,内部兜底至少 1;分数达标会提前结束。</param>
     /// <returns>事件列表,每个事件为 {type, payload} 字典。</returns>
-    public async Task<List<Dictionary<string, object>>> RunAsync(string topic, int rounds)
+    public async Task<List<Dictionary<string, object>>> RunAsync(
+        string topic, int rounds, CancellationToken ct = default,
+        Func<Dictionary<string, object>, ValueTask>? onEvent = null)
     {
         var events = new List<Dictionary<string, object>>();
+        async ValueTask Emit(Dictionary<string, object> evt)
+        {
+            events.Add(evt);
+            if (onEvent != null) await onEvent(evt);
+        }
         rounds = Math.Max(1, rounds);
+        ct.ThrowIfCancellationRequested();
 
         // ---------- 1. retrieve(LLM 调 search_knowledge 工具,通过 FunctionChoiceBehavior.Auto) ----------
         // 先清空 AsyncLocal 残留,确保后面取到的是本次调用写入的检索结果
@@ -70,7 +80,7 @@ public class AgentService
         };
         try
         {
-            await _kernel.InvokePromptAsync(retrievePrompt, new(retrieveSettings));
+            await _kernel.InvokePromptAsync(retrievePrompt, new(retrieveSettings), cancellationToken: ct);
         }
         catch (Exception)
         {
@@ -84,7 +94,7 @@ public class AgentService
             docs = await _rag.RetrieveAsync(topic, 4, "hybrid");
         }
         var docsForEvents = docs;
-        events.Add(new()
+        await Emit(new()
         {
             ["type"] = "retrieve",
             ["payload"] = new Dictionary<string, object>
@@ -111,11 +121,11 @@ public class AgentService
             if (qs.Count == 0)
             {
                 // topic 无预置题:记 error 事件并终止整场(无法继续面试)
-                events.Add(new() { ["type"] = "error", ["payload"] = new { msg = "topic 无 recallPrompts:" + topic } });
+                await Emit(new() { ["type"] = "error", ["payload"] = new { msg = "topic 无 recallPrompts:" + topic } });
                 return events;
             }
             var q = qs[0];
-            events.Add(new()
+            await Emit(new()
             {
                 ["type"] = "question",
                 ["payload"] = new Dictionary<string, object>
@@ -137,14 +147,14 @@ public class AgentService
                     new() { ["role"] = "user", ["content"] = "请回答。" },
                 };
                 // temperature=0.5:回答要有点随机性,避免每轮一模一样的答案
-                (answer, _) = await _llm.ChatAsync(messages, 0.5);
+                (answer, _) = await _llm.ChatAsync(messages, 0.5, ct);
             }
             catch (Exception e)
             {
                 // 模拟回答失败不阻断流程:用占位文本继续,让评估环节暴露问题
                 answer = "(模拟回答失败:" + e.Message + ")";
             }
-            events.Add(new() { ["type"] = "answer", ["payload"] = new { text = answer, round } });
+            await Emit(new() { ["type"] = "answer", ["payload"] = new { text = answer, round } });
 
             // ---------- 4. evaluate(LLM-as-Judge,见 InterviewService.EvaluateAsync) ----------
             try
@@ -154,17 +164,17 @@ public class AgentService
             catch (Exception e)
             {
                 // 评估抛出(topic 缺 rubric 等):记 error 事件并终止整场
-                events.Add(new() { ["type"] = "error", ["payload"] = new { msg = "评估失败:" + e.Message } });
+                await Emit(new() { ["type"] = "error", ["payload"] = new { msg = "评估失败:" + e.Message } });
                 return events;
             }
-            events.Add(new() { ["type"] = "evaluate", ["payload"] = lastEval });
+            await Emit(new() { ["type"] = "evaluate", ["payload"] = lastEval });
 
             // ---------- 5. decide(状态机分支:分数驱动是否追问) ----------
             var score = Convert.ToInt32(lastEval["score"]);
             if (score < 70 && round < rounds)
             {
                 // 不及格(阈值 70,与 B/C 一致)且还有轮次配额 → followup 继续追问
-                events.Add(new() { ["type"] = "followup", ["payload"] = new { round, reason = $"score={score} < 70,继续追问" } });
+                await Emit(new() { ["type"] = "followup", ["payload"] = new { round, reason = $"score={score} < 70,继续追问" } });
                 continue;
             }
             break;  // 分数达标或轮次用完 → 进入 advise 收尾
@@ -184,7 +194,7 @@ public class AgentService
                     Temperature = 0.3,
                     FunctionChoiceBehavior = FunctionChoiceBehavior.Auto()
                 };
-                var result = await _kernel.InvokePromptAsync(advisePrompt, new(adviseSettings));
+                var result = await _kernel.InvokePromptAsync(advisePrompt, new(adviseSettings), cancellationToken: ct);
                 // 最终回复文本 = 建议正文(save_note 的调用发生在工具回合,不影响最终文本)
                 advice = result.GetValue<string>() ?? "";
             }
@@ -193,11 +203,32 @@ public class AgentService
                 // 建议生成失败不阻断:占位文本,done 事件照常发出
                 advice = "(建议生成失败:" + e.Message + ")";
             }
-            events.Add(new() { ["type"] = "advise", ["payload"] = new { advice } });
+            await Emit(new() { ["type"] = "advise", ["payload"] = new { advice } });
         }
 
         // 终态事件:告知前端流程正常走完及实际轮数
-        events.Add(new() { ["type"] = "done", ["payload"] = new { rounds_done = round } });
+        await Emit(new() { ["type"] = "done", ["payload"] = new { rounds_done = round } });
         return events;
+    }
+
+    public async IAsyncEnumerable<Dictionary<string, object>> RunStreamAsync(
+        string topic, int rounds, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var channel = Channel.CreateBounded<Dictionary<string, object>>(
+            new BoundedChannelOptions(16) {
+                SingleReader = true, SingleWriter = true,
+                FullMode = BoundedChannelFullMode.Wait
+            });
+        var worker = Task.Run(async () =>
+        {
+            try
+            {
+                await RunAsync(topic, rounds, ct, evt => channel.Writer.WriteAsync(evt, ct));
+                channel.Writer.TryComplete();
+            }
+            catch (Exception error) { channel.Writer.TryComplete(error); }
+        }, ct);
+        await foreach (var evt in channel.Reader.ReadAllAsync(ct)) yield return evt;
+        await worker;
     }
 }

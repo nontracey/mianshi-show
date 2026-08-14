@@ -16,6 +16,7 @@ trace_and_metrics 中间件按顺序做三件事:
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -24,10 +25,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-import app
+import app as app_package
 from app.api import agent, interview, ops, rag
 from app.config import get_settings
-from app.infra.observability import get_metrics, get_trace_id, new_trace_id, set_trace_id
+from app.infra.observability import get_metrics, get_trace_id, new_trace_id
+from app.infra.tenant import reset_tenant, set_tenant
 from app.rag.loader import load_kb_sync
 
 logger = logging.getLogger(__name__)
@@ -80,7 +82,7 @@ def create_app() -> FastAPI:
     api = FastAPI(
         title="AI 面试陪练服务(Python 版)",
         description="RAG 知识问答 + LLM-judge 评估 + LangGraph Agent。三语言(B/C/D)同契约。",
-        version=app.__version__,
+        version=app_package.__version__,
         lifespan=lifespan,
     )
 
@@ -98,6 +100,16 @@ def create_app() -> FastAPI:
         # 为每个请求生成新 traceId,后续日志与响应头都基于它。
         new_trace_id()
         start = time.monotonic()
+        settings = get_settings()
+        api_keys = json.loads(settings.api_key_tenants)
+        credential = request.headers.get("X-Api-Key")
+        tenant = api_keys.get(credential) if credential else None
+        if tenant is None and not settings.allow_anonymous:
+            return JSONResponse(status_code=401, content={
+                "code": 401, "message": "missing or invalid credential",
+                "data": None, "traceId": get_trace_id(),
+            })
+        tenant_token = set_tenant(tenant or "default")
 
         # 限流:跳过 /health /docs /openapi.json(这些是探活/文档,不应被限)
         path = request.url.path
@@ -110,6 +122,7 @@ def create_app() -> FastAPI:
             rl = get_limiter().check(client_ip, has_own_key=has_own_key)
             if not rl.allowed:
                 logger.warning("限流拦截:ip=%s path=%s", client_ip, path)
+                reset_tenant(tenant_token)
                 return JSONResponse(
                     status_code=429,
                     content={
@@ -128,7 +141,7 @@ def create_app() -> FastAPI:
             # 未处理异常兜底:记录日志 + 返回 500 封套,避免堆栈泄漏给客户端。
             logger.exception("unhandled exception")
             get_metrics().record_request((time.monotonic() - start) * 1000)
-            return JSONResponse(
+            resp = JSONResponse(
                 status_code=500,
                 content={
                     "code": 500,
@@ -137,6 +150,8 @@ def create_app() -> FastAPI:
                     "traceId": get_trace_id(),
                 },
             )
+        finally:
+            reset_tenant(tenant_token)
         # 把 traceId 写回响应头,便于客户端反馈问题时定位日志。
         resp.headers["X-Trace-Id"] = get_trace_id()
         return resp

@@ -42,6 +42,7 @@ spring:
         distance-type: COSINE_DISTANCE          # 余弦距离
         initialize-schema: true                 # 首次启动自动建表
         table-name: vector_store
+        max-document-batch-size: ${PGVECTOR_BATCH_SIZE:256}
         schema-name: public
 
   # pgvector 数据源(仅 app.vector-store=pgvector 时用)
@@ -61,6 +62,23 @@ app:
     sample-path: ${KB_SAMPLE_PATH:../data/knowledge_base.sample.json}                # 内置样例(兜底)
   vector-store: ${VECTOR_STORE:memory}          # 向量库实现:memory(dev)/ pgvector(生产)
   rate-limit-per-minute: ${RATE_LIMIT_PER_MINUTE:20}  # 每分钟限流阈值(预留配置)
+  security:
+    allow-anonymous: ${ALLOW_ANONYMOUS:true}
+    api-keys: {}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: mianshi-show-java
 
 # Swagger / OpenAPI 文档
 springdoc:

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mianshi-show.local/contracts/api.schema.json",
+  "title": "Mianshi Show API Contract",
+  "$defs": {
+    "requestContext": {
+      "type": "object",
+      "required": ["requestId", "sessionId", "tenantId", "knowledgeBaseId", "knowledgeVersion"],
+      "properties": {
+        "requestId": { "type": "string", "minLength": 1 },
+        "sessionId": { "type": "string", "minLength": 1 },
+        "tenantId": { "type": "string", "minLength": 1 },
+        "knowledgeBaseId": { "type": "string", "minLength": 1 },
+        "knowledgeVersion": { "type": "string", "minLength": 1 }
+      }
+    },
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "documentId", "chunkId", "version", "score", "retrievalRoute"],
+      "properties": {
+        "source": { "type": "string" },
+        "documentId": { "type": "string" },
+        "chunkId": { "type": "string" },
+        "version": { "type": "string" },
+        "score": { "type": "number" },
+        "retrievalRoute": { "enum": ["vector", "keyword", "hybrid", "reranked"] }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "required": ["promptTokens", "completionTokens", "totalTokens", "totalLatencyMs"],
+      "properties": {
+        "promptTokens": { "type": "integer", "minimum": 0 },
+        "completionTokens": { "type": "integer", "minimum": 0 },
+        "totalTokens": { "type": "integer", "minimum": 0 },
+        "firstTokenLatencyMs": { "type": ["integer", "null"], "minimum": 0 },
+        "totalLatencyMs": { "type": "integer", "minimum": 0 },
+        "estimatedCost": { "type": ["number", "null"], "minimum": 0 },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "cacheHit": { "type": "boolean" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable", "requestId"],
+      "properties": {
+        "code": { "enum": ["INVALID_REQUEST", "UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND", "LOW_CONFIDENCE", "RATE_LIMITED", "DEPENDENCY_TIMEOUT", "DEPENDENCY_UNAVAILABLE", "TOOL_REJECTED", "CANCELLED", "INTERNAL_ERROR"] },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "requestId": { "type": "string" },
+        "details": { "type": "object" }
+      }
+    },
+    "sseEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "sequence", "requestId", "sessionId", "timestamp", "payload"],
+      "properties": {
+        "type": { "enum": ["started", "retrieve", "citation", "question", "answer", "tool_started", "tool_completed", "evaluate", "followup", "advise", "heartbeat", "error", "done"] },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "requestId": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "payload": {}
+      }
+    }
+  }
+}

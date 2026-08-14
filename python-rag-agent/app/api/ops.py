@@ -10,16 +10,14 @@
 
 from __future__ import annotations
 
-import time
-
 from fastapi import APIRouter
 
 import app
 from app.config import get_settings
-from app.infra.llm import LLMClient, LLMError, get_llm
+from app.infra.llm import LLMError, get_llm
 from app.infra.observability import get_metrics
 from app.rag.loader import get_kb
-from app.schemas import HealthData, MetricsData, ApiResponse
+from app.schemas import ApiResponse, HealthData, MetricsData
 
 router = APIRouter()
 

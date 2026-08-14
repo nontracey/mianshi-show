@@ -22,7 +22,6 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass
-from typing import Any
 
 from app.config import get_settings
 from app.rag.embedder import Embedder, get_embedder
@@ -258,12 +257,10 @@ async def _rerank(question: str, docs: list[ScoredDoc]) -> list[ScoredDoc]:
     if not docs:
         return []
     try:
-        from sentence_transformers import CrossEncoder  # type: ignore
-
         model = _get_cross_encoder()
         pairs = [(question, d.text) for d in docs]
         scores = model.predict(pairs)
-        ranked = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
+        ranked = sorted(zip(docs, scores, strict=True), key=lambda x: x[1], reverse=True)
         return [ScoredDoc(text=d.text, metadata=d.metadata, score=float(s)) for d, s in ranked]
     except ImportError:
         logger.info("sentence-transformers 未装,改用 LLM 重排")

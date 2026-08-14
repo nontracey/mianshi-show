@@ -45,4 +45,15 @@ public final class TenantContext {
     static void clear() {
         CURRENT.remove();
     }
+
+    /** Explicitly propagate a trusted tenant into an asynchronous worker and always clean it. */
+    public static void runAs(String tenant, Runnable action) {
+        String previous = CURRENT.get();
+        CURRENT.set(tenant);
+        try {
+            action.run();
+        } finally {
+            if (previous == null) CURRENT.remove(); else CURRENT.set(previous);
+        }
+    }
 }
