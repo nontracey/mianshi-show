@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -30,10 +31,10 @@ class PgVectorStoreIntegrationTest {
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         var embeddings = mock(EmbeddingModel.class);
         when(embeddings.dimensions()).thenReturn(3);
-        when(embeddings.embed(any(Document.class))).thenAnswer(inv -> {
-            Document doc = inv.getArgument(0);
-            return doc.getText().contains("volatile")
-                    ? new float[]{1, 0, 0} : new float[]{0, 1, 0};
+        when(embeddings.embed(anyList(), any(), any())).thenAnswer(inv -> {
+            List<Document> documents = inv.getArgument(0);
+            return documents.stream().map(doc -> doc.getText().contains("volatile")
+                    ? new float[]{1, 0, 0} : new float[]{0, 1, 0}).toList();
         });
         when(embeddings.embed(any(String.class))).thenReturn(new float[]{1, 0, 0});
         var store = PgVectorStore.builder(new JdbcTemplate(dataSource), embeddings)
