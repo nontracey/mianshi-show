@@ -73,3 +73,7 @@ Thumbs.db
 logs/
 # 本地私有数据；样例数据 data/*.sample.json 照常入库
 data/*.local.json
+
+# build & runtime artifacts
+mcp/target/
+mcp/data/
