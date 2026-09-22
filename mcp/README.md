@@ -35,12 +35,13 @@ eval/    评测层：对照组协议（带工具 vs 不带跑同题集）→ 功
 
 ## 状态
 
-- [x] 仓库脚手架（本提交）
-- [ ] 工具层三工具实现 + 失败路径测试
-- [ ] Skill manifest 版本化 + 漂移重扫
-- [ ] pgvector 数据层（Docker Compose）
-- [ ] 对照组评测协议 + 报告
-- [ ] 成本统计与去噪
+- [x] 仓库脚手架
+- [x] 工具层三工具实现 + 失败路径测试（治理三件套 6 项测试全绿）
+- [x] Skill manifest 版本化 + 漂移重扫（sha256，变更未重扫拒绝调用）
+- [ ] pgvector 数据层（Docker Compose；当前默认内存关键词检索，向量通道留 profile 位——已知短板）
+- [x] 对照组评测协议 + 报告（`docs/eval-report.md`，含 bad case 与短板声明）
+- [x] 成本统计（CostLedger）+ 去噪（coach 会话输出去控制符限长）
+- [x] 已知短板清单（ADR-7：无流式/无端点轮换/orTimeout 线程不中断/评测集样本小/基线组偏弱）
 - [ ] 验收：WorkBuddy MCP 连接器 / OpenCode + 免费模型实际调用三工具；验收后清理测试配置（见 `待办清单.md` T2）
 
 ## 红线（贡献前必读）
