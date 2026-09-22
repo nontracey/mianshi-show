@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: mianshi-zhilian-mcp
+  ai:
+    mcp:
+      server:
+        name: mianshi-zhilian-mcp
+        version: 0.1.0
+        # 与 lyra-ai 同款协议模式（stateless），对照见 docs/ADR.md ADR-1
+        protocol: stateless
+
+# 工具治理三件套的默认值（每个工具可覆盖，见 tool/ 契约）
+mcp-tools:
+  defaults:
+    timeout-ms: 10000
+    max-retries: 2
+    audit: true
+    require-scope: true
