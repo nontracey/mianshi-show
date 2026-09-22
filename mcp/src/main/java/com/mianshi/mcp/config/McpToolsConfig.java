@@ -18,13 +18,17 @@ import com.mianshi.mcp.tool.QuestionSearchTool;
 public class McpToolsConfig {
 
     @Bean
-    public AuditLog auditLog() { return new AuditLog(); }
+    public AuditLog auditLog(@org.springframework.beans.factory.annotation.Value("${mcp.audit.path:data/audit.jsonl}") String path) {
+        return new AuditLog(java.nio.file.Path.of(path));
+    }
 
     @Bean
     public GovernanceExecutor governanceExecutor(AuditLog audit) { return new GovernanceExecutor(audit); }
 
     @Bean
-    public SkillManifestService skillManifestService() { return new SkillManifestService(); }
+    public SkillManifestService skillManifestService(@org.springframework.beans.factory.annotation.Value("${mcp.manifest.path:data/manifest.jsonl}") String path) {
+        return new SkillManifestService(java.nio.file.Path.of(path));
+    }
 
     @Bean
     public com.mianshi.mcp.cost.CostLedger costLedger() { return new com.mianshi.mcp.cost.CostLedger(); }

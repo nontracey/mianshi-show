@@ -75,7 +75,7 @@ class GovernanceAndEvalTest {
                         List.of("RRF"), "rrf-hybrid"),
                 new EvalProtocol.GoldenItem("G3", "上下文超预算怎么处理？",
                         List.of("预算", "裁"), "context-budget"));
-        var report = h.run("test-run-1", items, h.deterministicResponder());
+        var report = h.run("test-run-" + System.nanoTime(), items, h.deterministicResponder());
         assertThat(report.functionScore()).isEqualTo(3);
         assertThat(report.gainScore()).isEqualTo(3); // 增强组应全命中（检索可用）
         assertThat(report.safetyScore()).isEqualTo(3);
