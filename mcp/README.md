@@ -51,3 +51,17 @@ eval/    评测层：对照组协议（带工具 vs 不带跑同题集）→ 功
 - 不做高并发/压测叙事；不写用户量；不承诺生产级 SLA——这是个人子系统的工程验证，卖点判据不卖规模。
 - 审计与元数据如实记录，失败不静默。
 - **交付时必须同时写"做得好的"与"做得不好的"**：每个 ADR 附已知短板；评测报告必须含 bad case 与未达标项；对应内容同步进防守稿（短板是追问的第一个入口，先自己说，不等对方戳）。
+
+## 手机演示（对外展示页）
+
+服务自带一个 demo 页（`src/main/resources/static/index.html`），与 `/mcp` 同源直调，无需任何前端构建：
+
+```bash
+cd mcp && mvn -DskipTests package
+/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home/bin/java -jar target/mianshi-zhilian-mcp-0.1.0-SNAPSHOT.jar --server.port=18080
+```
+
+- 本机：http://127.0.0.1:18080/
+- 手机（ZeroTier 网内）：http://10.147.19.248:18080/
+- 页面能力：三工具真实调用（检索 / 教练会话 / 对照组评测）、治理清单、已知边界（ADR-7 短板先说）。每次调用落 `data/audit.jsonl`。
+- ⚠️ 本机 curl 验证带 `--noproxy '*'`，否则 Clash 代理会截胡返回 502。

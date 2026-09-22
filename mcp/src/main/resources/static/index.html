@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>面试智练 · MCP 工具服务演示</title>
+<style>
+:root{
+  --bg:#f6f8fb; --panel:#fff; --panel2:#f1f5fa; --line:#dfe6ef; --line2:#c9d5e3;
+  --text:#16202e; --muted:#5c6b7f; --faint:#8a99ab;
+  --blue:#2f6fd0; --blue-bg:#e8f1fd; --green:#1f8a5a; --green-bg:#e6f6ee;
+  --red:#c0392b; --red-bg:#fdeceb; --amber:#a86a12; --amber-bg:#fdf3e0;
+  --shadow:0 1px 2px rgba(22,32,46,.05),0 8px 24px rgba(22,32,46,.06);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:14.5px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB",sans-serif;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:760px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:13px;margin:0 0 16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:14px 16px;box-shadow:var(--shadow);margin-bottom:14px}
+.kv{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.tag{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--blue-bg);color:#1c4f9c}
+.tag.g{background:var(--green-bg);color:var(--green)}
+.tag.a{background:var(--amber-bg);color:var(--amber)}
+.toolhead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.toolhead b{font-size:15px}
+.toolhead code{font-size:11.5px;color:var(--faint)}
+.toolhead .ok{margin-left:auto;font-size:12px;font-weight:800;padding:2px 9px;border-radius:999px;background:var(--green-bg);color:var(--green)}
+.desc{font-size:12.5px;color:var(--muted);margin:6px 0 10px}
+label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin:8px 0 4px}
+input,textarea{width:100%;border:1px solid var(--line2);border-radius:8px;padding:8px 10px;
+  font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfcfe;color:var(--text)}
+textarea{min-height:56px;resize:vertical}
+button{margin-top:10px;width:100%;padding:10px 0;border:none;border-radius:9px;cursor:pointer;
+  font:700 14px/1 inherit;font-family:inherit;background:var(--blue);color:#fff}
+button:active{background:#245bb0}
+button.ghost{background:var(--panel2);color:#26374b;border:1px solid var(--line2)}
+pre{background:#0e1726;color:#d7e3f4;border-radius:10px;padding:12px 14px;margin:10px 0 0;
+  font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:pre}
+pre.err{background:#2b1210;color:#f4d7d3}
+.hidden{display:none}
+h2{font-size:15px;margin:22px 0 10px;padding-bottom:7px;border-bottom:2px solid var(--line)}
+ul.feat{margin:6px 0 0;padding-left:20px;font-size:13px}
+ul.feat li{margin:4px 0}
+ul.feat code{background:var(--panel2);padding:1px 6px;border-radius:4px;font-size:11.5px;color:#0550ae}
+footer{color:var(--faint);font-size:11.5px;margin-top:26px;padding-top:12px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>面试智练 · MCP 工具服务</h1>
+  <p class="sub">真实 MCP 服务（spring-ai-mcp-server-webmvc · stateless）——本页即客户端，下面的调用都是真实请求，不是截图。</p>
+
+  <div class="card">
+    <div class="toolhead"><b>服务信息</b><span id="sinfo" class="ok">连接中…</span></div>
+    <div class="kv">
+      <span class="tag">JSON-RPC / Streamable HTTP</span>
+      <span class="tag">/mcp 同源直调</span>
+      <span class="tag g">11 项测试全绿</span>
+      <span class="tag g">官方 SDK 验收通过</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="toolhead"><b>① 题目/知识检索</b><code>searchQuestions</code></div>
+    <div class="desc">关键词 + 语义混合检索知识库，返回带来源的片段。治理链：manifest 漂移检查 → 审计落盘。</div>
+    <label>检索词 query</label>
+    <input id="q-query" value="上线判据和发布门">
+    <label>返回条数 topK</label>
+    <input id="q-topk" value="3" inputmode="numeric">
+    <button onclick="runSearch()">调用 searchQuestions</button>
+    <pre id="r-search" class="hidden"></pre>
+  </div>
+
+  <div class="card">
+    <div class="toolhead"><b>② 教练会话</b><code>coachSession</code></div>
+    <div class="desc">代理一次教练问答。<b>模型端点未配置时返回结构化错误</b>——失败不静默，这本身就是演示点。</div>
+    <label>会话 ID sessionId</label>
+    <input id="c-sid" value="phone-demo">
+    <label>用户消息 message</label>
+    <textarea id="c-msg">自我介绍 40 秒怎么说？</textarea>
+    <button onclick="runCoach()">调用 coachSession</button>
+    <pre id="r-coach" class="hidden"></pre>
+  </div>
+
+  <div class="card">
+    <div class="toolhead"><b>③ 对照组评测</b><code>runEval</code></div>
+    <div class="desc">同一题集带工具/不带工具各跑一遍，输出功能/增益/安全三维分 + bad case + 置信度。runId 唯一，重复运行拒绝（证据不可静默改写）。</div>
+    <label>运行标识 runId（自动生成，可改）</label>
+    <input id="e-rid">
+    <button onclick="runEval()">调用 runEval</button>
+    <pre id="r-eval" class="hidden"></pre>
+  </div>
+
+  <h2>这套服务在治理什么</h2>
+  <div class="card">
+    <ul class="feat">
+      <li><b>超时 / 幂等重试</b>：每个工具契约化（<code>ToolContract</code>），超时与重试次数不是参数是门禁；</li>
+      <li><b>审计落盘可回放</b>：每次调用追加写 <code>data/audit.jsonl</code>，重启不丢，可回放（replayFromFile）；</li>
+      <li><b>Skill 漂移检测</b>：工具清单 sha256 版本化，内容变更未重扫即拒调（<code>skill_drifted</code>）；</li>
+      <li><b>对照组评测</b>：功能/增益/安全三维分 + bad case + 置信度分级 + runId 回滚；</li>
+      <li><b>失败不静默</b>：所有错误结构化返回（缺参 / 未配置 / 漂移各有明确 error 码）。</li>
+    </ul>
+  </div>
+
+  <h2>已知边界（先自己说）</h2>
+  <div class="card">
+    <ul class="feat">
+      <li>模型代理端点未接：② 返回 <code>coach_not_configured</code>；评测走确定性应答器，接真实模型后增益数字重测；</li>
+      <li>黄金集 3 条、来源自建对照集——样本小，不推导全领域准确率；</li>
+      <li>多租户只做设计；审计日志本身未加密。</li>
+    </ul>
+  </div>
+
+  <footer>仓库：nontracey/mianshi-show · mcp 分支 · 验收记录见 docs/eval-report.md · 每次调用都落审计日志</footer>
+</div>
+
+<script>
+const EP = "/mcp";
+let rpcId = 1;
+async function rpc(method, params){
+  const res = await fetch(EP, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: rpcId++, method, params })
+  });
+  return res.json();
+}
+function show(id, obj, isError){
+  const el = document.getElementById(id);
+  el.classList.remove("hidden");
+  el.classList.toggle("err", !!isError);
+  el.textContent = typeof obj === "string" ? pretty(obj) : JSON.stringify(obj, null, 2);
+}
+function pretty(s){ try { return JSON.stringify(JSON.parse(s), null, 2); } catch(e){ return s; } }
+async function callTool(name, args, resultId){
+  try{
+    const r = await rpc("tools/call", { name, arguments: args });
+    if(r.error){ show(resultId, r.error, true); return; }
+    const texts = (r.result.content || []).map(c => c.text || "");
+    show(resultId, texts.join("\n"), !!r.result.isError);
+  }catch(e){ show(resultId, "网络错误：" + e, true); }
+}
+async function runSearch(){
+  const topk = parseInt(document.getElementById("q-topk").value, 10);
+  show("r-search", "调用中…", false);
+  await callTool("searchQuestions", { query: document.getElementById("q-query").value, topK: isNaN(topk) ? 3 : topk }, "r-search");
+}
+async function runCoach(){
+  show("r-coach", "调用中…", false);
+  await callTool("coachSession", { sessionId: document.getElementById("c-sid").value, message: document.getElementById("c-msg").value }, "r-coach");
+}
+async function runEval(){
+  show("r-eval", "调用中…", false);
+  await callTool("runEval", { runId: document.getElementById("e-rid").value }, "r-eval");
+}
+(function init(){
+  document.getElementById("e-rid").value = "demo-" + new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
+  rpc("initialize", { protocolVersion: "2025-03-26", capabilities: {},
+    clientInfo: { name: "phone-demo-page", version: "0.1.0" } })
+    .then(r => {
+      const si = r && r.result && r.result.serverInfo;
+      document.getElementById("sinfo").textContent = si ? ("已连接 · " + si.name + " v" + si.version) : "服务无响应";
+    })
+    .catch(() => { document.getElementById("sinfo").textContent = "服务无响应"; });
+})();
+</script>
+</body>
+</html>
