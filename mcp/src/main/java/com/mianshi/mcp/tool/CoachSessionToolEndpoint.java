@@ -32,8 +32,12 @@ public class CoachSessionToolEndpoint {
 
     @Tool(description = "发起一次面试教练问答：输入会话 ID 与消息，返回教练回答（需要服务端已配置模型端点）")
     public String coachSession(
-            @ToolParam(description = "会话 ID，用于会话日志归档") String sessionId,
-            @ToolParam(description = "用户消息") String message) {
+            @ToolParam(required = false, description = "会话 ID，用于会话日志归档") String sessionId,
+            @ToolParam(required = false, description = "用户消息") String message) {
+        // 外部验收发现（2026-09-22）：缺参错误统一改工具内校验 + 结构化返回（失败不静默）。
+        if (sessionId == null || sessionId.isBlank() || message == null || message.isBlank()) {
+            return "{\"error\":\"missing_arguments\",\"hint\":\"sessionId 与 message 必填\"}";
+        }
         var contract = new ToolContract("COACH_SESSION", "v1", 30000, 2, "coach:ask", true);
         Object result = governance.execute(contract, "session:" + sessionId, () -> {
             if (!manifest.isSafeToInvoke("coach-session", "v1:proxy-llm")) {

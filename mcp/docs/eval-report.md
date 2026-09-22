@@ -32,3 +32,13 @@
 cd mcp && mvn test -Dtest=GovernanceAndEvalTest
 # 工作区产物: target/eval-workspace-test/test-run-1/G*.md
 ```
+
+## 外部客户端验收（2026-09-22，真实 MCP SDK 客户端）
+
+- **客户端**：`@modelcontextprotocol/sdk`（官方 JS SDK）Streamable HTTP 客户端，initialize → tools/list → tools/call 全链路。
+- **结果**：三个工具全部通过——
+  1. `searchQuestions`：真实检索命中（rrf-hybrid 片段，含 15/15 vs 13/15 对照数据）；
+  2. `coachSession`：模型端点未配置时返回结构化错误 `coach_not_configured`（设计行为，不静默）；
+  3. `runEval`：带 runId 返回完整评测报告（3/3/3，置信度 high）。
+- **验收发现并修复的问题**：spring-ai mcp-server-webmvc 1.1.0-M3 把参数校验错误映射为**空 text 内容块**（`isError:true` 但无任何文本），严格客户端（官方 SDK）直接拒收解析——失败信息整个丢失，违反「失败不静默」。**修复**：三工具参数改为非必填 + 工具内显式校验，所有错误以结构化 JSON 返回；新增 `MissingArgumentStructuredErrorTest` 锁定行为（mvn test 11 项全绿）。
+- **验收环境备注**：服务以 `--server.port=18080` 本机运行；运行时用 JDK 26 跑 Java 21 字节码（向下兼容，无告警）。

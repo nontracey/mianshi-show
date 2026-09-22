@@ -43,7 +43,12 @@ public class EvalRunTool {
 
     @Tool(description = "运行对照组评测：同一题集分别以带工具/不带工具两种方式应答，输出功能/增益/安全三维分与 bad case")
     public String runEval(
-            @ToolParam(description = "运行标识，唯一；重复运行会拒绝（证据不可静默改写）") String runId) {
+            @ToolParam(required = false, description = "运行标识，唯一；重复运行会拒绝（证据不可静默改写）") String runId) {
+        // 外部验收发现（2026-09-22）：缺参时 spring-ai M3 返回空 text 块（isError 无内容），
+        // 严格客户端拒收。参数改非必填 + 工具内显式校验，错误以结构化 JSON 返回。
+        if (runId == null || runId.isBlank()) {
+            return "{\"error\":\"missing_runId\",\"hint\":\"runId 必填且唯一：重复运行会拒绝（证据不可静默改写）\"}";
+        }
         var contract = new ToolContract("EVAL_RUN", "v1", 15000, 0, "eval:execute", true);
         Object result = governance.execute(contract, "run:" + runId, () ->
                 harness.run(runId, GOLDEN, harness.deterministicResponder()));

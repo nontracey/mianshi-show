@@ -35,8 +35,13 @@ public class QuestionSearchTool {
 
     @Tool(description = "在面试训练知识库中检索题目与知识条目，返回带来源的片段列表")
     public String searchQuestions(
-            @ToolParam(description = "检索词，支持中英文混合") String query,
-            @ToolParam(description = "返回条数，默认 3") Integer topK) {
+            @ToolParam(required = false, description = "检索词，支持中英文混合") String query,
+            @ToolParam(required = false, description = "返回条数，默认 3") Integer topK) {
+        // 外部验收发现（2026-09-22）：spring-ai M3 把缺参错误映射成空 text 块，严格客户端拒收；
+        // 参数改非必填 + 工具内显式校验，所有错误以结构化 JSON 返回（失败不静默）。
+        if (query == null || query.isBlank()) {
+            return "{\"error\":\"missing_query\",\"hint\":\"query 必填：检索词，支持中英文混合\"}";
+        }
         int k = topK == null || topK <= 0 ? 3 : Math.min(topK, 10);
         var contract = new ToolContract("QUESTION_SEARCH", "v1", 5000, 1, "knowledge:read", true);
         Object result = governance.execute(contract, "q:" + query, () -> {
